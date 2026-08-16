@@ -1,0 +1,59 @@
+data:
+  config:
+    ambPressure: 101325.0
+    burnoutThrustThres: 0.1
+    burnoutWebThres: 2.5400050800101604e-05
+    flowSeparationWarnPercent: 0.05
+    mapDim: 750
+    maxMachNumber: 0.7
+    maxMassFlux: 1406.4697609001405
+    maxPressure: 10342500.0
+    minPortThroat: 2.0
+    sepPressureRatio: 0.4
+    timestep: 0.03
+  grains:
+  - properties:
+      coreDiameter: 0.019050038100076203
+      diameter: 0.06507493014986031
+      inhibitedEnds: Both
+      length: 0.025400050800101603
+    type: BATES
+  - properties:
+      aftCoreDiameter: 0.034925069850139705
+      diameter: 0.06507493014986031
+      forwardCoreDiameter: 0.019050038100076203
+      inhibitedEnds: Both
+      length: 1.1684023368046739
+    type: Conical
+  - properties:
+      coreDiameter: 0.034925069850139705
+      diameter: 0.06507493014986031
+      inhibitedEnds: Both
+      length: 0.025400050800101603
+    type: BATES
+  nozzle:
+    convAngle: 60.0
+    divAngle: 15.0
+    efficiency: 0.95
+    erosionCoeff: 2.2103751191511918e-10
+    exit: 0.07620015240030481
+    slagCoeff: 0.0
+    throat: 0.022860045720091444
+    throatLength: 0.006350012700025401
+  propellant:
+    density: 1699.5457728642882
+    name: 84 Solids - Rev. 2
+    tabs:
+    - a: 1.5694834407944363e-05
+      k: 1.19
+      m: 24.98
+      maxPressure: 6895000.000000001
+      minPressure: 0.0
+      n: 0.4
+      t: 3105.0
+type: !!python/object/apply:uilib.fileIO.fileTypes
+- 3
+version: !!python/tuple
+- 0
+- 6
+- 1
