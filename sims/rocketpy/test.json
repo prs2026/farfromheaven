@@ -1,0 +1,174 @@
+{
+  "format": "rocketpy-cdx1",
+  "format_version": 1,
+  "units": {
+    "length": "m",
+    "mass": "kg",
+    "time": "s",
+    "temperature": "K",
+    "pressure": "Pa"
+  },
+  "source": {
+    "file": "FFH 4 sus only.CDX1",
+    "format": "RASAero II CDX1"
+  },
+  "rocket": {
+    "name": "FFH 4 sus only",
+    "radius": 0.038099999999999995,
+    "launch_mass": 11.793401620000001,
+    "mass_source": "RASAero SustainerLaunchWt (lb converted to kg)",
+    "inertia": {
+      "I11": 1.0,
+      "I22": 1.0,
+      "I33": 1.0,
+      "I12": 1.0,
+      "I13": 1.0,
+      "I23": 1.0
+    },
+    "aero_curves": "CD Test sustainer.CSV",
+    "aero_curve_alpha": 0.0,
+    "aero_plot_max_mach": 8.0,
+    "thrust_curve": "3in-N4118.eng",
+    "motor": {
+      "type": "solid",
+      "grain_outer_radius": 0.0327,
+      "grain_density": 1799.1938061632031,
+      "grain_number": 1,
+      "grain_separation": 0.0,
+      "minimum_dry_mass": 0.01,
+      "propellant_length": 1.219202438,
+      "geometry_source": "RASP motor diameter and length; density assumed as 0.065 lb/in^3"
+    },
+    "center_of_mass_without_motor": 1.2821919999999998,
+    "coordinate_system_orientation": "tail_to_nose",
+    "engine_name": "3in-N4118  (TsKrush)",
+    "rail_buttons": {
+      "upper_position": 1,
+      "lower_position": 1,
+      "position_reference": "nose_tip",
+      "angular_position": 45.0,
+      "radius": 0.038099999999999995
+    },
+    "parachutes": [
+      {
+        "name": "recovery_1",
+        "enabled": true,
+        "device_type": "None",
+        "event_type": "None",
+        "trigger": "apogee",
+        "deployment_altitude": 304.8,
+        "diameter": 0.0254,
+        "cd": 1.33,
+        "sampling_rate": 100,
+        "lag": 0.0,
+        "noise": [
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      {
+        "name": "recovery_2",
+        "enabled": false,
+        "device_type": "None",
+        "event_type": "None",
+        "trigger": null,
+        "deployment_altitude": 304.8,
+        "diameter": 0.0254,
+        "cd": 1.33,
+        "sampling_rate": 100,
+        "lag": 0.0,
+        "noise": [
+          0.0,
+          0.0,
+          0.0
+        ]
+      }
+    ]
+  },
+  "stages": [
+    {
+      "part_type": "NoseCone",
+      "length": 0.381,
+      "diameter": 0.07619999999999999,
+      "inside_diameter": 0.0,
+      "location": 0.0,
+      "shoulder_length": 0.0,
+      "boattail_length": 0.0,
+      "boattail_rear_diameter": 0.0,
+      "color": "Black",
+      "fins": [],
+      "shape": "Conical"
+    },
+    {
+      "part_type": "BodyTube",
+      "length": 1.651,
+      "diameter": 0.07619999999999999,
+      "inside_diameter": 0.0,
+      "location": 0.381,
+      "shoulder_length": 0.0,
+      "boattail_length": 0.0,
+      "boattail_rear_diameter": 0.0,
+      "color": "Black",
+      "fins": [
+        {
+          "count": 4,
+          "root_chord": 0.2032,
+          "span": 0.08889999999999999,
+          "sweep_distance": 0.15239999999999998,
+          "tip_chord": 0.1016,
+          "thickness": 0.0047498,
+          "leading_edge_radius": 0.000254,
+          "location": 0.2032,
+          "airfoil_section": "Hexagonal"
+        }
+      ]
+    }
+  ],
+  "launch_site": {
+    "altitude": 1127.76,
+    "pressure": 101320.75888000001,
+    "temperature": 299.8166666666667,
+    "wind_speed": 2.2352,
+    "rod_angle": 1.0,
+    "rod_length": 6.096
+  },
+  "recovery": {
+    "events": [
+      {
+        "name": "recovery_1",
+        "enabled": false,
+        "device_type": "None",
+        "event_type": "None",
+        "trigger": null,
+        "deployment_altitude": 304.8,
+        "diameter": 0.0254,
+        "cd": 1.33,
+        "sampling_rate": 100,
+        "lag": 0.0,
+        "noise": [
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      {
+        "name": "recovery_2",
+        "enabled": false,
+        "device_type": "None",
+        "event_type": "None",
+        "trigger": null,
+        "deployment_altitude": 304.8,
+        "diameter": 0.0254,
+        "cd": 1.33,
+        "sampling_rate": 100,
+        "lag": 0.0,
+        "noise": [
+          0.0,
+          0.0,
+          0.0
+        ]
+      }
+    ]
+  }
+}
