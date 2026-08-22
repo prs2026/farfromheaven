@@ -18,12 +18,12 @@
     "launch_mass": 11.793401620000001,
     "mass_source": "RASAero SustainerLaunchWt (lb converted to kg)",
     "inertia": {
-      "I11": 1.0,
-      "I22": 1.0,
-      "I33": 1.0,
-      "I12": 1.0,
-      "I13": 1.0,
-      "I23": 1.0
+      "I11": 1.728,
+      "I22": 1.728,
+      "I33": 0.00075,
+      "I12": 0,
+      "I13": 0,
+      "I23": 0
     },
     "aero_curves": "CD Test sustainer.CSV",
     "aero_curve_alpha": 0.0,

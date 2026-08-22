@@ -437,8 +437,6 @@ def simulation_readiness_issues(data: Mapping[str, Any]) -> list[str]:
     if not isinstance(rocket, Mapping):
         return ["rocket must be a JSON object"]
 
-    if not rocket.get("thrust_curve") and not rocket.get("motor"):
-        issues.append("rocket.thrust_curve must point to a RASP .eng motor file")
     if not rocket.get("aero_curves"):
         issues.append(
             "rocket.aero_curves requires a CSV containing Mach, Alpha, "
@@ -453,15 +451,6 @@ def simulation_readiness_issues(data: Mapping[str, Any]) -> list[str]:
         issues.append(str(exc))
     if rocket.get("launch_mass") is None and rocket.get("mass") is None:
         issues.append("rocket.launch_mass is required")
-    if rocket.get("launch_mass") is not None and not rocket.get("thrust_curve"):
-        issues.append("rocket.thrust_curve is required to subtract motor mass from launch_mass")
-    rail_buttons = rocket.get("rail_buttons")
-    if not isinstance(rail_buttons, Mapping):
-        issues.append("rocket.rail_buttons is required for launch-rail dynamics")
-    elif rail_buttons.get("upper_position") is None or rail_buttons.get("lower_position") is None:
-        issues.append(
-            "rocket.rail_buttons.upper_position and lower_position must be entered in meters"
-        )
     parachutes = rocket.get("parachutes", [])
     if not isinstance(parachutes, list):
         issues.append("rocket.parachutes must be an array")
@@ -471,8 +460,6 @@ def simulation_readiness_issues(data: Mapping[str, Any]) -> list[str]:
             for parachute in parachutes
             if isinstance(parachute, Mapping) and _parachute_is_enabled(parachute)
         ]
-        if not enabled_parachutes:
-            issues.append("rocket.parachutes requires at least one enabled recovery event")
         for index, parachute in enumerate(enabled_parachutes):
             if parachute.get("diameter") is None or parachute.get("cd") is None:
                 issues.append(
@@ -551,10 +538,12 @@ def build_rocket(
                 f"({loaded_motor_mass:g} kg) from {motor_curve_path}"
             )
     else:
-        # Version 1/manual configurations may already contain RocketPy dry mass.
-        launch_mass = None
+        # Motorless configurations are valid ballistic rockets. Treat an
+        # explicitly supplied dry mass as authoritative; accept launch_mass as
+        # the dry mass for older motorless JSON files.
+        launch_mass = config.get("launch_mass")
         dry_rocket_mass = _finite_number(
-            _require(config, "mass", "rocket"), "rocket.mass", positive=True
+            config.get("mass", launch_mass), "rocket.mass", positive=True
         )
 
     # CDX1 CG and component locations are measured aft from the nose tip.
@@ -646,6 +635,30 @@ def build_rocket(
                 bluffness=_finite_number(stage.get("bluffness", 0), f"stages[{index}].bluffness"),
                 base_radius=stage_radius,
                 name=str(stage.get("name", "Nose Cone")),
+            )
+
+        shoulder_length = _finite_number(
+            stage.get("shoulder_length", 0), f"stages[{index}].shoulder_length"
+        )
+        inside_diameter = _finite_number(
+            stage.get("inside_diameter", 0), f"stages[{index}].inside_diameter"
+        )
+        if (
+            part_type == "booster"
+            and shoulder_length > 0
+            and inside_diameter > 0
+            and not math.isclose(inside_diameter / 2, stage_radius)
+        ):
+            # RASAero models the forward interstage transition through the
+            # booster's shoulder and inside diameter. The top plane mates to
+            # the narrower sustainer; the bottom plane is the booster body.
+            rocket.add_tail(
+                top_radius=inside_diameter / 2,
+                bottom_radius=stage_radius,
+                length=shoulder_length,
+                position=_rocket_position(stage_location, total_length, orientation),
+                radius=stage_radius,
+                name=f"{stage.get('part_type', 'Booster')} Transition",
             )
 
         boattail_length = _finite_number(stage.get("boattail_length", 0), f"stages[{index}].boattail_length")

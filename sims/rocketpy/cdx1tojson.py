@@ -4,13 +4,13 @@ RASAero stores dimensions in inches, launch mass in pounds, altitude in feet,
 pressure in inches of mercury, wind speed in miles per hour, and launch-site
 temperature in degrees Fahrenheit. The generated file uses SI units and
 contains the fields needed to construct a RocketPy ``Rocket``. CDX1 files
-do not contain thrust curves, drag curves, or mass moments of inertia, so
-those values are represented by zero/empty placeholders rather than omitted.
+do not contain thrust or drag curves, so those paths remain optional inputs.
+Dry mass moments of inertia are approximated as a uniform cylinder.
 When a booster is present, the output contains selectable ``full_stack``,
 ``sustainer``, and ``booster`` rocket configurations in the same file.
 
 Usage:
-	python cdx1tojson.py input.CDX1 output.json --full-stack-aero full.csv --sustainer-aero sustainer.csv --full-stack-thrust booster.eng --sustainer-thrust sustainer.eng
+	python cdx1tojson.py input.CDX1 output.json --full-stack-aero full.csv --sustainer-aero sustainer.csv --booster-thrust booster.eng --sustainer-thrust sustainer.eng
 	python cdx1tojson.py input.CDX1
 """
 
@@ -93,16 +93,23 @@ def _stage(element: ET.Element) -> dict[str, Any]:
 	return stage
 
 
-def _zero_inertia() -> dict[str, float]:
-	return {"I11": 0.0, "I22": 0.0, "I33": 0.0, "I12": 0.0, "I13": 0.0, "I23": 0.0}
+def _cylinder_inertia(mass: float, stages: list[dict[str, Any]]) -> dict[str, float]:
+	"""Approximate dry inertia as a uniform cylinder spanning the rocket."""
+	if mass <= 0 or not stages:
+		return {"I11": 0.0, "I22": 0.0, "I33": 0.0, "I12": 0.0, "I13": 0.0, "I23": 0.0}
+	front = min(stage["location"] for stage in stages)
+	aft = max(stage["location"] + stage["length"] for stage in stages)
+	length = aft - front
+	radius = max(stage["diameter"] for stage in stages) / 2
+	transverse = mass * (3 * radius**2 + length**2) / 12
+	axial = mass * radius**2 / 2
+	return {"I11": transverse, "I22": transverse, "I33": axial, "I12": 0.0, "I13": 0.0, "I23": 0.0}
 
 
-def _motor_geometry(
-	thrust_curve: str | Path | None, base_dir: str | Path = "."
-) -> dict[str, Any] | None:
-	"""Read motor diameter and length from a RASP header for grain modeling."""
-	if thrust_curve is None:
-		return None
+def _motor_header(
+	thrust_curve: str | Path, base_dir: str | Path = "."
+) -> tuple[float, float, float, float]:
+	"""Return diameter, length, propellant mass, and loaded mass from RASP."""
 	path = Path(thrust_curve)
 	if not path.is_absolute():
 		path = Path(base_dir) / path
@@ -119,10 +126,22 @@ def _motor_geometry(
 			raise ValueError("header needs designation, diameter, length, delays, propellant mass, and total mass")
 		diameter = float(fields[1]) / 1000
 		length = float(fields[2]) / 1000
+		propellant_mass = float(fields[4])
+		loaded_mass = float(fields[5])
 	except (OSError, ValueError) as exc:
 		raise ValueError(f"Invalid RASP motor header in {path}: {exc}") from exc
-	if not math.isfinite(diameter) or diameter <= 0 or not math.isfinite(length) or length <= 0:
-		raise ValueError(f"Motor diameter and length must be positive in {path}")
+	if not all(math.isfinite(value) and value > 0 for value in (diameter, length, propellant_mass, loaded_mass)):
+		raise ValueError(f"Motor dimensions and masses must be positive in {path}")
+	return diameter, length, propellant_mass, loaded_mass
+
+
+def _motor_geometry(
+	thrust_curve: str | Path | None, base_dir: str | Path = "."
+) -> dict[str, Any] | None:
+	"""Read motor diameter and length from a RASP header for grain modeling."""
+	if thrust_curve is None:
+		return None
+	diameter, length, _, _ = _motor_header(thrust_curve, base_dir)
 	return {
 		"type": "solid",
 		"grain_outer_radius": diameter / 2,
@@ -180,6 +199,7 @@ def _rocket_definition(
 	name: str,
 	stages: list[dict[str, Any]],
 	mass: float,
+	dry_mass: float,
 	center_of_mass: float,
 	engine_name: str,
 	aero_curves: str | Path | None,
@@ -191,12 +211,11 @@ def _rocket_definition(
 	if not stages:
 		raise ValueError(f"Cannot create rocket configuration {name!r} without stages")
 	radius = max(stage["diameter"] for stage in stages) / 2
-	return {
+	definition = {
 		"name": name,
 		"radius": radius,
-		"launch_mass": mass,
 		"mass_source": mass_source,
-		"inertia": _zero_inertia(),
+		"inertia": _cylinder_inertia(dry_mass, stages),
 		"aero_curves": str(Path(aero_curves)) if aero_curves else None,
 		"aero_curve_alpha": 0.0,
 		"aero_plot_max_mach": 8.0,
@@ -214,6 +233,8 @@ def _rocket_definition(
 		},
 		"parachutes": copy.deepcopy(parachutes),
 	}
+	definition["launch_mass" if thrust_curve else "mass"] = mass
+	return definition
 
 
 def _simulation(simulation: ET.Element | None) -> dict[str, Any]:
@@ -286,14 +307,23 @@ def convert_cdx1(
 
 	sustainer_stages = [stage for stage in stages if stage["part_type"].lower() != "booster"]
 	booster_stages = [stage for stage in stages if stage["part_type"].lower() == "booster"]
+	sustainer_motor_curve = sustainer_thrust or thrust_curve
+	sustainer_motor_mass = (
+		_motor_header(sustainer_motor_curve, asset_base_dir)[3]
+		if sustainer_motor_curve else 0.0
+	)
+	sustainer_dry_mass = sustainer["launch_mass"] - sustainer_motor_mass
+	if sustainer_dry_mass <= 0:
+		raise ValueError("Sustainer wet mass must exceed its loaded motor mass")
 	sustainer_rocket = _rocket_definition(
 		name=f"{input_path.stem} - Sustainer" if booster_stages else input_path.stem,
 		stages=sustainer_stages,
 		mass=sustainer["launch_mass"],
+		dry_mass=sustainer_dry_mass,
 		center_of_mass=sustainer["center_of_mass"],
 		engine_name=sustainer["engine"],
 		aero_curves=sustainer_aero or aero_curves,
-		thrust_curve=sustainer_thrust or thrust_curve,
+		thrust_curve=sustainer_motor_curve,
 		mass_source="RASAero SustainerLaunchWt (lb converted to kg)",
 		parachutes=recovery_events,
 		asset_base_dir=asset_base_dir,
@@ -332,13 +362,24 @@ def convert_cdx1(
 	)
 	full_mass = booster_sim["launch_mass"]
 	full_cg = booster_sim["center_of_mass"]
-	booster_mass = full_mass - sustainer["launch_mass"]
+	full_stack_motor_curve = full_stack_thrust or booster_thrust or thrust_curve
+	full_stack_motor_mass = (
+		_motor_header(full_stack_motor_curve, asset_base_dir)[3]
+		if full_stack_motor_curve else 0.0
+	)
+	full_stack_dry_mass = full_mass - full_stack_motor_mass
+	booster_mass = full_stack_dry_mass - sustainer["launch_mass"]
+	if booster_mass <= 0:
+		raise ValueError(
+			"Full-stack dry mass must exceed sustainer wet mass to derive booster dry mass"
+		)
 	booster_origin = min(stage["location"] for stage in booster_stages)
-	if booster_mass > 0:
+	booster_wet_mass = full_mass - sustainer["launch_mass"]
+	if booster_wet_mass > 0:
 		booster_cg_global = (
 			full_mass * full_cg
 			- sustainer["launch_mass"] * sustainer["center_of_mass"]
-		) / booster_mass
+		) / booster_wet_mass
 	else:
 		# No standalone booster mass properties can be inferred. Preserve the
 		# CDX1 value so the zero mass remains an obvious, correctable placeholder.
@@ -348,10 +389,11 @@ def convert_cdx1(
 		name=f"{input_path.stem} - Full Stack",
 		stages=stages,
 		mass=full_mass,
+		dry_mass=full_stack_dry_mass,
 		center_of_mass=full_cg,
 		engine_name=booster_sim["engine"],
 		aero_curves=full_stack_aero or aero_curves,
-		thrust_curve=full_stack_thrust or thrust_curve,
+		thrust_curve=full_stack_motor_curve,
 		mass_source="RASAero BoosterLaunchWt (lb converted to kg; complete vehicle with booster attached)",
 		parachutes=recovery_events,
 		asset_base_dir=asset_base_dir,
@@ -360,11 +402,12 @@ def convert_cdx1(
 		name=f"{input_path.stem} - Booster",
 		stages=booster_stages,
 		mass=booster_mass,
+		dry_mass=booster_mass,
 		center_of_mass=booster_cg_global - booster_origin,
 		engine_name=booster_sim["engine"],
 		aero_curves=booster_aero,
-		thrust_curve=booster_thrust,
-		mass_source="Derived as full-stack launch mass minus sustainer launch mass",
+		thrust_curve=None,
+		mass_source="Full-stack dry mass minus sustainer wet mass",
 		parachutes=recovery_events,
 		asset_base_dir=asset_base_dir,
 	)
@@ -373,31 +416,24 @@ def convert_cdx1(
 	result["default_rocket"] = "full_stack"
 	result["rockets"] = {
 		"full_stack": {
-			"format": "rocketpy-cdx1-full-stack",
-			"configuration_type": "sustainer_with_booster",
 			"rocket": full_stack_rocket,
 			"stages": copy.deepcopy(stages),
-			"simulation": copy.deepcopy(booster_sim),
 		},
 		"sustainer": {
-			"format": "rocketpy-cdx1-sustainer",
-			"configuration_type": "sustainer",
 			"rocket": sustainer_rocket,
 			"stages": _rebase_stages(sustainer_stages),
-			"simulation": copy.deepcopy(sustainer),
 		},
 		"booster": {
-			"format": "rocketpy-cdx1-booster",
-			"configuration_type": "booster",
 			"rocket": booster_rocket,
 			"stages": _rebase_stages(booster_stages),
-			"simulation": copy.deepcopy(booster_sim),
 		},
 	}
-	# Keep the default configuration at the top level so existing consumers of
-	# version 1 files continue to construct the complete launch vehicle.
-	result["rocket"] = copy.deepcopy(full_stack_rocket)
-	result["stages"] = copy.deepcopy(stages)
+	# Version 2 stores every selectable rocket only once. The interpreter
+	# overlays the requested entry, so top-level rocket/stages copies and the
+	# duplicate recovery event list are unnecessary.
+	result.pop("rocket")
+	result.pop("stages")
+	result.pop("recovery")
 	return result
 
 
@@ -453,7 +489,7 @@ def main() -> int:
 	thrust_group.add_argument(
 		"--booster-thrust", "--booster-thrust-curve",
 		dest="booster_thrust", type=_existing_file,
-		help="RASP .eng curve for the booster alone",
+		help="RASP .eng booster motor curve applied to the full-stack configuration only",
 	)
 	args = parser.parse_args()
 	output = args.output or args.input.with_suffix(".json")
