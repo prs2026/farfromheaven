@@ -1,0 +1,45 @@
+{
+  "format": "projectblaze.rocketpy.monte_carlo_config",
+  "format_version": 1,
+  "rocket_json": "twostage.json",
+  "rockets": [
+    "full_stack",
+    "sustainer"
+  ],
+  "allow_incomplete_rocket": false,
+  "environment": {
+    "latitude": 40.870683,
+    "longitude": -119.10695,
+    "elevation_m": 1191.0,
+    "date": null,
+    "time": null,
+    "timezone": "America/Los_Angeles",
+    "model": "gfs_seamless",
+    "endpoint": "forecast",
+    "max_expected_height_m": 180000.0,
+    "extend_above_model_top": true
+  },
+  "simulation": {
+    "number_of_simulations": 29,
+    "output_path": "monte_carlo_flights.pkl",
+    "random_seed": 42,
+    "parameters": {
+      "launch_angle": {
+        "distribution": "gaussian",
+        "mean": 90.0,
+        "std_dev": 2.0,
+        "min": 0.01,
+        "max": 90.0
+      },
+      "heading": {
+        "distribution": "gaussian",
+        "mean": 30,
+        "std_dev": 110
+      },
+      "rail_length": 20.0,
+      "coast_period": 10.0,
+      "max_time": 600.0,
+      "max_time_step": 0.5
+    }
+  }
+}

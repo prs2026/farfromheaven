@@ -36,6 +36,7 @@ def runfullstacksim(
     rail_length: float = 6.0,
     rod_angle: float = 0.0,
     heading: float = 0.0,
+    max_time_step: float = math.inf,
 ) -> list[list[float]]:
     """Run the boost and sustainer phases and return the original solution format.
 
@@ -49,6 +50,7 @@ def runfullstacksim(
     rail_length = float(rail_length)
     rod_angle = float(rod_angle)
     heading = float(heading)
+    max_time_step = float(max_time_step)
     if not all(math.isfinite(value) for value in (time_limit, coast_period, rail_length, rod_angle, heading)):
         raise ValueError("time_limit, coast_period, rail_length, rod_angle, and heading must be finite")
     if coast_period < 0:
@@ -59,6 +61,8 @@ def runfullstacksim(
         raise ValueError("rod_angle must be in the range [0, 90) degrees from vertical")
     if not 0 <= heading < 360:
         raise ValueError("heading must be in the range [0, 360) degrees")
+    if math.isnan(max_time_step) or max_time_step <= 0:
+        raise ValueError("max_time_step must be positive")
 
     BoosterMotor = full_stack.motor
     booster_burnout_time = float(BoosterMotor.burn_out_time)
@@ -80,6 +84,7 @@ def runfullstacksim(
         inclination=90.0 - rod_angle,
         heading=heading,
         max_time=booster_burnout_time,
+        max_time_step=max_time_step,
         rtol=1e-4,
         atol=1e-6,
         time_overshoot=True,
@@ -137,6 +142,7 @@ def runfullstacksim(
             inclination=StackFlight2.attitude_angle(stagingtime),
             heading=heading,
             max_time=ignitiontime,
+            max_time_step=max_time_step,
             rtol=1e-4,
             atol=1e-6,
             time_overshoot=True,
@@ -179,6 +185,7 @@ def runfullstacksim(
         inclination=StackFlight2.attitude_angle(stagingtime),
         heading=heading,
         max_time=time_limit - ignitiontime,
+        max_time_step=max_time_step,
         rtol=1e-4,
         atol=1e-6,
         time_overshoot=True,

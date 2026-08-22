@@ -297,7 +297,15 @@ def extend_pressure_temperature_with_isa(
     max_expected_height_m: float,
     extension_points: int = 80,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Extend pressure and temperature above Open-Meteo's highest level."""
+    """Extend pressure and temperature above Open-Meteo's highest level.
+
+    RocketPy's standard-atmosphere pressure function is only physically valid
+    through the mesosphere.  Polynomial extrapolation above roughly 80 km
+    becomes negative, which gives RocketPy negative density and can make its
+    ODE solver take extremely small steps.  Use the standard atmosphere up to
+    80 km, then continue pressure with a positive isothermal scale-height
+    model.
+    """
 
     top_height = min(float(pressure[-1, 0]), float(temperature[-1, 0]))
     if max_expected_height_m <= top_height:
@@ -316,15 +324,31 @@ def extend_pressure_temperature_with_isa(
     pressure_scale = float(pressure[-1, 1]) / float(standard_env.pressure(top_height))
     temperature_offset = float(temperature[-1, 1]) - float(standard_env.temperature(top_height))
 
+    isa_ceiling_m = 80_000.0
+    join_height = min(max_expected_height_m, max(top_height, isa_ceiling_m))
+    join_pressure = float(standard_env.pressure(join_height)) * pressure_scale
+    join_temperature = (
+        float(standard_env.temperature(join_height)) + temperature_offset
+    )
+    # Specific gas constant for dry air and standard gravitational acceleration.
+    scale_height = 287.05 * max(join_temperature, 1.0) / 9.80665
+
     heights = np.linspace(top_height, max_expected_height_m, extension_points + 1)[1:]
-    pressure_extension = [
-        (height, float(standard_env.pressure(height)) * pressure_scale)
-        for height in heights
-    ]
-    temperature_extension = [
-        (height, float(standard_env.temperature(height)) + temperature_offset)
-        for height in heights
-    ]
+    pressure_extension: list[tuple[float, float]] = []
+    temperature_extension: list[tuple[float, float]] = []
+    for height in heights:
+        if height <= join_height:
+            extended_pressure = float(standard_env.pressure(height)) * pressure_scale
+            extended_temperature = (
+                float(standard_env.temperature(height)) + temperature_offset
+            )
+        else:
+            extended_pressure = join_pressure * math.exp(
+                -(height - join_height) / scale_height
+            )
+            extended_temperature = join_temperature
+        pressure_extension.append((height, extended_pressure))
+        temperature_extension.append((height, extended_temperature))
 
     return (
         append_pressure_rows(pressure, pressure_extension),
