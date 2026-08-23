@@ -12,7 +12,7 @@
     </NoseCone>
     <BodyTube>
       <PartType>BodyTube</PartType>
-      <Length>65</Length>
+      <Length>58</Length>
       <Diameter>3</Diameter>
       <LaunchLugDiameter>0</LaunchLugDiameter>
       <LaunchLugLength>0</LaunchLugLength>
@@ -49,7 +49,7 @@
       <RailGuideDiameter>0</RailGuideDiameter>
       <RailGuideHeight>0</RailGuideHeight>
       <LaunchShoeArea>0</LaunchShoeArea>
-      <Location>80</Location>
+      <Location>73</Location>
       <ShoulderLength>2</ShoulderLength>
       <Color>Black</Color>
       <NozzleExitDiameter>0</NozzleExitDiameter>
@@ -105,16 +105,16 @@
   <MachAlt />
   <SimulationList>
     <Simulation>
-      <SustainerEngine>3in-N4118  (TsKrush)</SustainerEngine>
-      <SustainerLaunchWt>26</SustainerLaunchWt>
+      <SustainerEngine>N3992  (TsKrush)</SustainerEngine>
+      <SustainerLaunchWt>23.7</SustainerLaunchWt>
       <SustainerNozzleDiameter>0</SustainerNozzleDiameter>
-      <SustainerCG>50.48</SustainerCG>
+      <SustainerCG>47.38</SustainerCG>
       <SustainerIgnitionDelay>10</SustainerIgnitionDelay>
-      <Booster1Engine>4in-RCS-O5808  (TsKrush)</Booster1Engine>
-      <Booster1LaunchWt>62.9</Booster1LaunchWt>
+      <Booster1Engine>O7548  (TsKrush)</Booster1Engine>
+      <Booster1LaunchWt>57.9</Booster1LaunchWt>
       <Booster1SeparationDelay>0</Booster1SeparationDelay>
       <Booster1IgnitionDelay>0</Booster1IgnitionDelay>
-      <Booster1CG>88</Booster1CG>
+      <Booster1CG>83.53</Booster1CG>
       <Booster1NozzleDiameter>0</Booster1NozzleDiameter>
       <IncludeBooster1>True</IncludeBooster1>
       <Booster2LaunchWt>0</Booster2LaunchWt>
@@ -123,9 +123,9 @@
       <Booster2NozzleDiameter>0</Booster2NozzleDiameter>
       <IncludeBooster2>False</IncludeBooster2>
       <FlightTime>0</FlightTime>
-      <TimetoApogee>186.2994</TimetoApogee>
-      <MaxAltitude>501935.3</MaxAltitude>
-      <MaxVelocity>6183.465</MaxVelocity>
+      <TimetoApogee>173.1559</TimetoApogee>
+      <MaxAltitude>439178.2</MaxAltitude>
+      <MaxVelocity>5953.627</MaxVelocity>
       <OptimumWt>0</OptimumWt>
       <OptimumMaxAlt>0</OptimumMaxAlt>
     </Simulation>
