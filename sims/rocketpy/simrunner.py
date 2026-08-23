@@ -4,8 +4,19 @@ from __future__ import annotations
 
 import math
 from copy import deepcopy
+from dataclasses import dataclass
 
 from rocketpy import EmptyMotor, Environment, Flight, GenericMotor, Rocket
+
+
+@dataclass(frozen=True)
+class FullStackSimulationResult:
+    """Per-call multistage results safe to consume from concurrent workers."""
+
+    solution: list[list[float]]
+    flights: tuple[Flight, ...]
+    staging_tilt: float | None
+    ignition_time: float
 
 
 def run_single_simulation(
@@ -37,7 +48,8 @@ def runfullstacksim(
     rod_angle: float = 0.0,
     heading: float = 0.0,
     max_time_step: float = math.inf,
-) -> list[list[float]]:
+    return_details: bool = False,
+) -> list[list[float]] | FullStackSimulationResult:
     """Run the boost and sustainer phases and return the original solution format.
 
     The booster separates at burnout. The sustainer then coasts without a
@@ -98,8 +110,13 @@ def runfullstacksim(
         or staging_altitude <= environment.elevation
     ):
         print("Staging aborted: full stack impacted before booster burnout")
-        runfullstacksim.last_flights = (StackFlight2,)
-        return StackFlight2.solution
+        result = FullStackSimulationResult(
+            StackFlight2.solution, (StackFlight2,), None, ignitiontime
+        )
+        runfullstacksim.last_flights = result.flights
+        runfullstacksim.staging_tilt = result.staging_tilt
+        runfullstacksim.ignition_time = result.ignition_time
+        return result if return_details else result.solution
     sustainer_motor = sustainer.motor
     coast_motor = GenericMotor(
         thrust_source=0,
@@ -155,8 +172,16 @@ def runfullstacksim(
             or coast_end_altitude <= environment.elevation
         ):
             print("Sustainer ignition aborted: sustainer impacted during coast")
-            runfullstacksim.last_flights = (StackFlight2, SustainerNOMOTORFlight2)
-            return SustainerNOMOTORFlight2.solution
+            result = FullStackSimulationResult(
+                SustainerNOMOTORFlight2.solution,
+                (StackFlight2, SustainerNOMOTORFlight2),
+                None,
+                ignitiontime,
+            )
+            runfullstacksim.last_flights = result.flights
+            runfullstacksim.staging_tilt = result.staging_tilt
+            runfullstacksim.ignition_time = result.ignition_time
+            return result if return_details else result.solution
         ignition_state = SustainerNOMOTORFlight2.solution[-1][:]
         comparison_flights = (StackFlight2, SustainerNOMOTORFlight2)
     else:
@@ -209,13 +234,26 @@ def runfullstacksim(
     if impact_time is not None:
         SustainerFlight2.impact_time += ignitiontime
 
-    runfullstacksim.last_flights = (*comparison_flights, SustainerFlight2)
-    runfullstacksim.staging_tilt = stagingtilt
-    runfullstacksim.ignition_time = ignitiontime
-    return SustainerFlight2.solution
+    result = FullStackSimulationResult(
+        SustainerFlight2.solution,
+        (*comparison_flights, SustainerFlight2),
+        stagingtilt,
+        ignitiontime,
+    )
+    runfullstacksim.last_flights = result.flights
+    runfullstacksim.staging_tilt = result.staging_tilt
+    runfullstacksim.ignition_time = result.ignition_time
+    return result if return_details else result.solution
 
 
 run_full_stack_simulation = runfullstacksim
 runfullstacksim.last_flights = ()
 runfullstacksim.staging_tilt = None
 runfullstacksim.ignition_time = None
+
+__all__ = [
+    "FullStackSimulationResult",
+    "run_full_stack_simulation",
+    "run_single_simulation",
+    "runfullstacksim",
+]

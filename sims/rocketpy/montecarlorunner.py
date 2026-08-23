@@ -11,7 +11,8 @@ Standalone usage::
 
 Simulation parameters in the JSON may be fixed numbers, Gaussian objects with
 ``mean`` and ``std_dev``, or deterministic sweep objects with ``min`` and
-``max``. Paths are resolved relative to the configuration file.
+``max``. Set ``simulation.workers`` to the number of launches to run
+concurrently. Paths are resolved relative to the configuration file.
 """
 
 from __future__ import annotations
@@ -19,17 +20,29 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import os
 import pickle
 import random
 import sys
+import tempfile
 import time
 from collections.abc import Mapping, Sequence
+from concurrent.futures import ProcessPoolExecutor
+from contextlib import contextmanager
+from copy import deepcopy
 from datetime import datetime, timedelta, timezone
+from multiprocessing import get_context
 from pathlib import Path
+from threading import BrokenBarrierError
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from rocketpy import Environment, Flight, Rocket
+
+try:
+    import dill
+except ImportError:  # Only required when workers > 1.
+    dill = None
 
 from simrunner import runfullstacksim
 
@@ -64,6 +77,62 @@ SIMULATION_PARAMETER_DEFAULTS = {
     "max_time_step": 0.5,
     "coast_period": 5.0,
 }
+
+_PROCESS_RUN_CASE = None
+_NATIVE_THREAD_ENVIRONMENT_VARIABLES = (
+    "OPENBLAS_NUM_THREADS",
+    "OMP_NUM_THREADS",
+    "MKL_NUM_THREADS",
+    "NUMEXPR_NUM_THREADS",
+    "BLIS_NUM_THREADS",
+)
+
+
+@contextmanager
+def _native_thread_limit(thread_count: int):
+    """Limit nested numerical-library threads inherited by spawned workers."""
+
+    previous = {
+        variable: os.environ.get(variable)
+        for variable in _NATIVE_THREAD_ENVIRONMENT_VARIABLES
+    }
+    value = str(thread_count)
+    for variable in _NATIVE_THREAD_ENVIRONMENT_VARIABLES:
+        os.environ[variable] = value
+    try:
+        yield
+    finally:
+        for variable, previous_value in previous.items():
+            if previous_value is None:
+                os.environ.pop(variable, None)
+            else:
+                os.environ[variable] = previous_value
+
+
+def _initialize_process_worker(context_path: str, startup_barrier: Any) -> None:
+    """Load a private context and wait until every worker is ready."""
+
+    global _PROCESS_RUN_CASE
+    if dill is None:  # pragma: no cover - checked in the parent process
+        raise RuntimeError("parallel simulation requires the dill package")
+    with Path(context_path).open("rb") as context_file:
+        _PROCESS_RUN_CASE = dill.load(context_file)
+    try:
+        startup_barrier.wait(timeout=300)
+    except BrokenBarrierError as exc:
+        raise RuntimeError(
+            "Monte Carlo workers did not initialize within 300 seconds"
+        ) from exc
+
+
+def _execute_process_case(
+    simulation_index: int, parameters: Mapping[str, float]
+) -> tuple[Path, int]:
+    """Execute one case using the context installed in this worker."""
+
+    if _PROCESS_RUN_CASE is None:
+        raise RuntimeError("Monte Carlo worker was not initialized")
+    return _PROCESS_RUN_CASE(simulation_index, parameters)
 
 
 def _as_rocket_tuple(rockets: Rocket | Sequence[Rocket]) -> tuple[Rocket, ...]:
@@ -299,6 +368,28 @@ def _validate_powered_flight_motion(flight: Flight, max_time_step: float) -> Non
         )
 
 
+def load_monte_carlo_output(path: str | Path) -> dict[str, Any]:
+    """Load either a legacy or streamed Monte Carlo pickle.
+
+    Streamed version-2 files store the metadata first and each flight as a
+    subsequent pickle object. Loading reconstructs the legacy ``flights``
+    list for analysis tools; simulation generation itself never holds that
+    complete list in memory.
+    """
+
+    input_path = Path(path).expanduser().resolve()
+    with input_path.open("rb") as pickle_file:
+        payload = pickle.load(pickle_file)
+        if not isinstance(payload, dict):
+            raise TypeError("Monte Carlo pickle metadata must be a dictionary")
+        if payload.get("storage") == "pickle_stream":
+            flight_count = int(payload.get("flight_record_count", 0))
+            payload["flights"] = [
+                pickle.load(pickle_file) for _ in range(flight_count)
+            ]
+    return payload
+
+
 def run_monte_carlo(
     rockets: Rocket | Sequence[Rocket],
     environment: Environment,
@@ -315,6 +406,8 @@ def run_monte_carlo(
     coast_period: float = 5.0,
     random_seed: int | None = None,
     parameter_variations: Mapping[str, Any] | None = None,
+    workers: int = 1,
+    native_threads_per_worker: int = 1,
 ) -> dict[str, Any]:
     """Run a launch-angle Monte Carlo sweep and write its data to a pickle.
 
@@ -323,9 +416,13 @@ def run_monte_carlo(
     Carlo iteration. A recognized ``full_stack`` and ``sustainer`` pair runs
     as one multistage flight; other rockets run independently.
 
-    The returned dictionary is the same object written to ``output_path``.
-    Its ``flights`` list contains the full 14-state RocketPy solution for each
-    flight plus identifying information and common event values.
+    The returned dictionary contains the streamed file metadata. Use
+    :func:`load_monte_carlo_output` when all full 14-state flight solutions
+    need to be materialized for analysis.
+
+    ``workers`` controls the number of concurrent simulation processes. Each
+    process operates on private rocket copies, and results are stored in their
+    original simulation-index order.
     """
     rocket_tuple = _as_rocket_tuple(rockets)
     multistage_pair = _multistage_pair(rocket_tuple)
@@ -337,6 +434,17 @@ def run_monte_carlo(
         raise TypeError("number_of_simulations must be an integer")
     if number_of_simulations <= 0:
         raise ValueError("number_of_simulations must be positive")
+    if isinstance(workers, bool) or not isinstance(workers, int):
+        raise TypeError("workers must be an integer")
+    if workers <= 0:
+        raise ValueError("workers must be positive")
+    if isinstance(native_threads_per_worker, bool) or not isinstance(
+        native_threads_per_worker, int
+    ):
+        raise TypeError("native_threads_per_worker must be an integer")
+    if native_threads_per_worker <= 0:
+        raise ValueError("native_threads_per_worker must be positive")
+    worker_count = min(workers, number_of_simulations)
 
     launch_angle = float(launch_angle)
     launch_angle_std_dev = float(launch_angle_std_dev)
@@ -368,9 +476,17 @@ def run_monte_carlo(
         number_of_simulations,
         random_seed,
     )
-    flight_records: list[dict[str, Any]] = []
+    output_path = Path(output_path).expanduser().resolve()
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    shard_directory = Path(
+        tempfile.mkdtemp(
+            prefix=f".{output_path.stem}_parts_", dir=output_path.parent
+        )
+    )
 
-    for simulation_index, parameters in enumerate(sampled_parameter_sets):
+    def run_case(
+        simulation_index: int, parameters: Mapping[str, float]
+    ) -> tuple[Path, int]:
         simulation_start = time.perf_counter()
         print(
             f"Starting simulation {simulation_index + 1}/"
@@ -385,12 +501,15 @@ def run_monte_carlo(
         sampled_coast_period = parameters["coast_period"]
 
         if multistage_pair is not None:
-            full_stack, sustainer = multistage_pair
+            # RocketPy builds interpolation caches during a Flight. Give each
+            # integration isolated rocket objects so repeated cases within a
+            # worker never retain mutable state from the previous case.
+            full_stack, sustainer = (deepcopy(rocket) for rocket in multistage_pair)
             if sampled_angle <= 0:
                 raise ValueError(
                     "a multistage launch angle must be greater than 0 degrees"
                 )
-            runfullstacksim(
+            result = runfullstacksim(
                 full_stack,
                 sustainer,
                 environment,
@@ -400,8 +519,9 @@ def run_monte_carlo(
                 rod_angle=90.0 - sampled_angle,
                 heading=sampled_heading,
                 max_time_step=sampled_max_time_step,
+                return_details=True,
             )
-            phase_flights = runfullstacksim.last_flights
+            phase_flights = result.flights
             if len(phase_flights) < 2:
                 raise RuntimeError(
                     f"multistage simulation {simulation_index + 1} did not "
@@ -422,8 +542,8 @@ def run_monte_carlo(
                     "flight_type": "multistage",
                     "heading": sampled_heading,
                     "simulation_parameters": dict(parameters),
-                    "ignition_time_s": runfullstacksim.ignition_time,
-                    "ignition_angle_deg_from_vertical": runfullstacksim.staging_tilt,
+                    "ignition_time_s": result.ignition_time,
+                    "ignition_angle_deg_from_vertical": result.staging_tilt,
                     "phases": [
                         {
                             "name": phase.name,
@@ -435,18 +555,23 @@ def run_monte_carlo(
                     ],
                 }
             )
-            flight_records.append(record)
+            case_records = [record]
+            shard_path = shard_directory / f"simulation_{simulation_index:08d}.pkl"
+            with shard_path.open("wb") as shard_file:
+                pickle.dump(case_records, shard_file, protocol=pickle.HIGHEST_PROTOCOL)
             print(
                 f"Completed simulation {simulation_index + 1}/"
                 f"{number_of_simulations} in "
                 f"{time.perf_counter() - simulation_start:.2f} s",
                 flush=True,
             )
-            continue
+            return shard_path, len(case_records)
 
+        case_records: list[dict[str, Any]] = []
         for rocket_index, rocket in enumerate(rocket_tuple):
+            worker_rocket = deepcopy(rocket)
             flight = Flight(
-                rocket=rocket,
+                rocket=worker_rocket,
                 environment=environment,
                 rail_length=sampled_rail_length,
                 inclination=sampled_angle,
@@ -475,24 +600,80 @@ def run_monte_carlo(
                     "simulation_parameters": dict(parameters),
                 }
             )
-            flight_records.append(record)
+            case_records.append(record)
 
+        shard_path = shard_directory / f"simulation_{simulation_index:08d}.pkl"
+        with shard_path.open("wb") as shard_file:
+            pickle.dump(case_records, shard_file, protocol=pickle.HIGHEST_PROTOCOL)
         print(
             f"Completed simulation {simulation_index + 1}/"
             f"{number_of_simulations} in "
             f"{time.perf_counter() - simulation_start:.2f} s",
             flush=True,
         )
+        return shard_path, len(case_records)
 
-    output_path = Path(output_path).expanduser().resolve()
-    output_path.parent.mkdir(parents=True, exist_ok=True)
+    indexed_parameters = list(enumerate(sampled_parameter_sets))
+    if worker_count == 1:
+        case_results = [
+            run_case(index, parameters) for index, parameters in indexed_parameters
+        ]
+    else:
+        if dill is None:
+            raise RuntimeError(
+                "workers greater than 1 require dill; install it with "
+                "'python -m pip install dill'"
+            )
+        print(
+            f"Running {number_of_simulations} simulations with "
+            f"{worker_count} worker processes and "
+            f"{native_threads_per_worker} native thread(s) per worker",
+            flush=True,
+        )
+        logical_cpu_count = os.process_cpu_count() or os.cpu_count() or 1
+        if worker_count > max(1, logical_cpu_count // 2):
+            print(
+                f"Note: {worker_count} workers are competing for "
+                f"{logical_cpu_count} logical CPUs; per-simulation time may "
+                "increase once physical cores are occupied.",
+                flush=True,
+            )
+        # Write the large RocketPy/environment context once. Passing the blob
+        # through ProcessPoolExecutor initargs makes Windows copy it to each
+        # child serially, which can stagger worker startup by minutes.
+        worker_context_path = shard_directory / "worker_context.dill"
+        with worker_context_path.open("wb") as context_file:
+            dill.dump(run_case, context_file, recurse=True)
+        process_context = get_context("spawn")
+        startup_barrier = process_context.Barrier(worker_count)
+        with _native_thread_limit(native_threads_per_worker):
+            with ProcessPoolExecutor(
+                max_workers=worker_count,
+                mp_context=process_context,
+                initializer=_initialize_process_worker,
+                initargs=(str(worker_context_path), startup_barrier),
+            ) as executor:
+                futures = [
+                    executor.submit(_execute_process_case, index, parameters)
+                    for index, parameters in indexed_parameters
+                ]
+                # Preserve simulation ordering in the output even when workers
+                # complete in a different order.
+                case_results = [future.result() for future in futures]
+        worker_context_path.unlink()
+
+    flight_record_count = sum(record_count for _, record_count in case_results)
     payload: dict[str, Any] = {
         "format": "projectblaze.rocketpy.monte_carlo",
-        "format_version": 1,
+        "format_version": 2,
+        "storage": "pickle_stream",
+        "flight_record_count": flight_record_count,
         "created_at_utc": datetime.now(timezone.utc).isoformat(),
         "state_columns": STATE_COLUMNS,
         "configuration": {
             "number_of_simulations": number_of_simulations,
+            "workers": worker_count,
+            "native_threads_per_worker": native_threads_per_worker,
             "number_of_rockets": len(rocket_tuple),
             "launch_angle": launch_angle,
             "launch_angle_std_dev": launch_angle_std_dev,
@@ -518,11 +699,20 @@ def run_monte_carlo(
             "timezone": str(getattr(environment, "timezone", "")),
             "date": str(getattr(environment, "date", "")),
         },
-        "flights": flight_records,
     }
 
     with output_path.open("wb") as pickle_file:
         pickle.dump(payload, pickle_file, protocol=pickle.HIGHEST_PROTOCOL)
+
+        # Merge one completed simulation at a time. This keeps memory bounded
+        # by active workers plus one shard instead of all completed flights.
+        for shard_path, _ in case_results:
+            with shard_path.open("rb") as shard_file:
+                records = pickle.load(shard_file)
+            for record in records:
+                pickle.dump(record, pickle_file, protocol=pickle.HIGHEST_PROTOCOL)
+            shard_path.unlink()
+    shard_directory.rmdir()
 
     return payload
 
@@ -623,6 +813,18 @@ def main(argv: Sequence[str] | None = None) -> int:
         random_seed = simulation.get("random_seed")
         if random_seed is not None and not isinstance(random_seed, int):
             raise ValueError("simulation.random_seed must be an integer or null")
+        workers = simulation.get("workers", 1)
+        if isinstance(workers, bool) or not isinstance(workers, int) or workers <= 0:
+            raise ValueError("simulation.workers must be a positive integer")
+        native_threads_per_worker = simulation.get("native_threads_per_worker", 1)
+        if (
+            isinstance(native_threads_per_worker, bool)
+            or not isinstance(native_threads_per_worker, int)
+            or native_threads_per_worker <= 0
+        ):
+            raise ValueError(
+                "simulation.native_threads_per_worker must be a positive integer"
+            )
         parameters = simulation.get("parameters", {})
         if not isinstance(parameters, Mapping):
             raise ValueError("simulation.parameters must be an object")
@@ -653,7 +855,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(
                 f"Valid Monte Carlo config: {config_path}\n"
                 f"Rockets: {', '.join(str(rocket.name) for rocket in rockets)}\n"
-                f"Mode: {mode}; simulations: {number_of_simulations}; output: {output_path}"
+                f"Mode: {mode}; simulations: {number_of_simulations}; "
+                f"workers: {min(workers, number_of_simulations)}; "
+                f"native threads/worker: {native_threads_per_worker}; "
+                f"output: {output_path}"
             )
             return 0
 
@@ -679,6 +884,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 environment_config.get("extend_above_model_top", True)
             ),
         )
+        start_time = time.perf_counter()
         payload = run_monte_carlo(
             rockets,
             openmeteo_result.environment,
@@ -690,14 +896,15 @@ def main(argv: Sequence[str] | None = None) -> int:
             output_path=output_path,
             random_seed=random_seed,
             parameter_variations=parameters,
+            workers=workers,
+            native_threads_per_worker=native_threads_per_worker,
         )
     except (OSError, RocketConfigurationError, RuntimeError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
-
     print(
-        f"Saved {len(payload['flights'])} flights from "
-        f"{number_of_simulations} simulations to {output_path}"
+        f"Saved {payload['flight_record_count']} flights from "
+        f"{number_of_simulations} simulations to {output_path} in {time.perf_counter() - start_time:.2f} s"
     )
     print(
         f"Open-Meteo profile: {forecast_date} {forecast_time} {timezone_name}; "
@@ -709,6 +916,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 __all__ = [
     "SIMULATION_PARAMETER_DEFAULTS",
     "STATE_COLUMNS",
+    "load_monte_carlo_output",
     "load_monte_carlo_config",
     "parse_args",
     "run_monte_carlo",
