@@ -290,7 +290,7 @@ def convert_cdx1(
 	stages = [
 		_stage(part)
 		for part in design
-		if part.tag in {"NoseCone", "BodyTube", "Booster"}
+		if part.tag in {"NoseCone", "BodyTube", "FinCan", "Booster"}
 	]
 	simulation_list = root.find("SimulationList")
 	simulation = simulation_list.find("Simulation") if simulation_list is not None else None

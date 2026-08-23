@@ -643,6 +643,28 @@ def build_rocket(
         inside_diameter = _finite_number(
             stage.get("inside_diameter", 0), f"stages[{index}].inside_diameter"
         )
+        if part_type == "fincan":
+            if stage_length <= 0 or stage_radius <= 0 or inside_diameter <= 0:
+                raise RocketConfigurationError(
+                    f"stages[{index}] FinCan requires positive length, diameter, "
+                    "and inside_diameter"
+                )
+            if inside_diameter > 2 * stage_radius:
+                raise RocketConfigurationError(
+                    f"stages[{index}].inside_diameter cannot exceed its diameter"
+                )
+            # A CDX1 FinCan is an external sleeve over the preceding airframe.
+            # RocketPy has no combined fin-can surface, so represent the sleeve
+            # as a Tail transition and add its nested Fin entries below.
+            rocket.add_tail(
+                top_radius=inside_diameter / 2,
+                bottom_radius=stage_radius,
+                length=stage_length,
+                position=_rocket_position(stage_location, total_length, orientation),
+                radius=stage_radius,
+                name=str(stage.get("name", "Fin Can Tail")),
+            )
+
         if (
             part_type == "booster"
             and shoulder_length > 0

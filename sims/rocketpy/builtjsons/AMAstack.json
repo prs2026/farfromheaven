@@ -124,6 +124,30 @@
           "fins": []
         },
         {
+          "part_type": "FinCan",
+          "length": 0.2032,
+          "diameter": 0.079375,
+          "inside_diameter": 0.07619999999999999,
+          "location": 1.8541999999999998,
+          "shoulder_length": 0.0254,
+          "boattail_length": 0.0,
+          "boattail_rear_diameter": 0.0,
+          "color": "Black",
+          "fins": [
+            {
+              "count": 4,
+              "root_chord": 0.2032,
+              "span": 0.08889999999999999,
+              "sweep_distance": 0.15239999999999998,
+              "tip_chord": 0.1016,
+              "thickness": 0.0047498,
+              "leading_edge_radius": 0.000254,
+              "location": 0.2032,
+              "airfoil_section": "Hexagonal"
+            }
+          ]
+        },
+        {
           "part_type": "Booster",
           "length": 1.5748,
           "diameter": 0.1016,
@@ -152,12 +176,12 @@
     "sustainer": {
       "rocket": {
         "name": "AMA 4-3 Current Booster - Sustainer",
-        "radius": 0.038099999999999995,
+        "radius": 0.0396875,
         "mass_source": "RASAero SustainerLaunchWt (lb converted to kg)",
         "inertia": {
-          "I11": 2.1800363166320875,
-          "I22": 2.1800363166320875,
-          "I33": 0.0055157176169298,
+          "I11": 2.6836312301530403,
+          "I22": 2.6836312301530403,
+          "I33": 0.005984936650314454,
           "I12": 0.0,
           "I13": 0.0,
           "I23": 0.0
@@ -184,7 +208,7 @@
           "lower_position": null,
           "position_reference": "nose_tip",
           "angular_position": 45.0,
-          "radius": 0.038099999999999995
+          "radius": 0.0396875
         },
         "parachutes": [
           {
@@ -249,6 +273,30 @@
           "boattail_rear_diameter": 0.0,
           "color": "Black",
           "fins": []
+        },
+        {
+          "part_type": "FinCan",
+          "length": 0.2032,
+          "diameter": 0.079375,
+          "inside_diameter": 0.07619999999999999,
+          "location": 1.8541999999999998,
+          "shoulder_length": 0.0254,
+          "boattail_length": 0.0,
+          "boattail_rear_diameter": 0.0,
+          "color": "Black",
+          "fins": [
+            {
+              "count": 4,
+              "root_chord": 0.2032,
+              "span": 0.08889999999999999,
+              "sweep_distance": 0.15239999999999998,
+              "tip_chord": 0.1016,
+              "thickness": 0.0047498,
+              "leading_edge_radius": 0.000254,
+              "location": 0.2032,
+              "airfoil_section": "Hexagonal"
+            }
+          ]
         }
       ]
     },

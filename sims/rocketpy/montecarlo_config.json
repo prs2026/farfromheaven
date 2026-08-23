@@ -21,7 +21,7 @@
   },
   "simulation": {
     "number_of_simulations": 50,
-    "workers": 20,
+    "workers": 10,
     "native_threads_per_worker": 1,
     "output_path": "monte_carlo_flights.pkl",
     "random_seed": 42,
@@ -29,7 +29,7 @@
       "launch_angle": {
         "distribution": "gaussian",
         "mean": 90.0,
-        "std_dev": 5.0,
+        "std_dev": 1.0,
         "min": 0.01,
         "max": 90.0
       },
@@ -40,6 +40,16 @@
       },
       "rail_length": 20.0,
       "coast_period": 10.0,
+      "sustainer_booster_impulse_ratio_percent": {
+        "distribution": "sweep",
+        "min": 50.0,
+        "max": 150.0
+      },
+      "sustainer_booster_mass_ratio_percent": {
+        "distribution": "sweep",
+        "min": 50.0,
+        "max": 150.0
+      },
       "max_time": 600.0,
       "max_time_step": 0.5
     }

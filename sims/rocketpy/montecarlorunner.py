@@ -46,7 +46,6 @@ except ImportError:  # Only required when workers > 1.
 
 from simrunner import runfullstacksim
 
-
 STATE_COLUMNS = (
     "time",
     "x",
@@ -76,6 +75,8 @@ SIMULATION_PARAMETER_DEFAULTS = {
     "max_time": 600.0,
     "max_time_step": 0.5,
     "coast_period": 5.0,
+    "sustainer_booster_impulse_ratio_percent": 100.0,
+    "sustainer_booster_mass_ratio_percent": 100.0,
 }
 
 _PROCESS_RUN_CASE = None
@@ -194,7 +195,13 @@ def _validate_parameter(name: str, value: Any) -> float:
         return value % 360.0
     if name == "launch_angle" and not 0 <= value <= 90:
         raise ValueError("launch_angle must be in the range [0, 90] degrees")
-    if name in {"rail_length", "max_time", "max_time_step"} and value <= 0:
+    if name in {
+        "rail_length",
+        "max_time",
+        "max_time_step",
+        "sustainer_booster_impulse_ratio_percent",
+        "sustainer_booster_mass_ratio_percent",
+    } and value <= 0:
         raise ValueError(f"{name} must be positive")
     if name == "coast_period" and value < 0:
         raise ValueError("coast_period cannot be negative")
@@ -305,6 +312,103 @@ def _optional_float(source: Any, attribute: str) -> float | None:
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+def _motor_initial_mass(motor: Any) -> float:
+    total_mass = getattr(motor, "total_mass", None)
+    if callable(total_mass):
+        return float(total_mass(0))
+    return float(motor.dry_mass) + float(motor.propellant_initial_mass)
+
+
+def _scale_motor_thrust(motor: Any, scalar: float) -> None:
+    """Scale every tabulated thrust sample while retaining its time coordinate."""
+
+    source = motor.thrust.source
+    if callable(source):
+        raise ValueError("impulse-ratio variation requires tabulated thrust curves")
+    motor.thrust.set_source(
+        [[float(point[0]), float(point[1]) * scalar] for point in source]
+    )
+
+
+def _tabulated_motor_impulse(motor: Any) -> float:
+    """Integrate the motor's current tabulated thrust curve in N s."""
+
+    source = motor.thrust.source
+    if callable(source):
+        raise ValueError("impulse auditing requires tabulated thrust curves")
+    points = [(float(point[0]), float(point[1])) for point in source]
+    return sum(
+        (time_1 - time_0) * (thrust_0 + thrust_1) / 2.0
+        for (time_0, thrust_0), (time_1, thrust_1) in zip(points, points[1:])
+    )
+
+
+def _apply_stage_ratio_variations(
+    full_stack: Rocket,
+    sustainer: Rocket,
+    impulse_ratio_percent: float,
+    mass_ratio_percent: float,
+) -> dict[str, float]:
+    """Redistribute fixed totals to obtain requested sustainer/booster ratios."""
+
+    booster_motor = full_stack.motor
+    sustainer_motor = sustainer.motor
+    nominal_booster_impulse = _tabulated_motor_impulse(booster_motor)
+    nominal_sustainer_impulse = _tabulated_motor_impulse(sustainer_motor)
+
+    if impulse_ratio_percent != 100.0:
+        booster_impulse = nominal_booster_impulse
+        sustainer_impulse = nominal_sustainer_impulse
+        if booster_impulse <= 0 or sustainer_impulse <= 0:
+            raise ValueError("impulse-ratio variation requires two powered stages")
+        impulse_ratio = (
+            sustainer_impulse / booster_impulse * impulse_ratio_percent / 100.0
+        )
+        total_impulse = booster_impulse + sustainer_impulse
+        varied_booster_impulse = total_impulse / (1.0 + impulse_ratio)
+        varied_sustainer_impulse = total_impulse - varied_booster_impulse
+        _scale_motor_thrust(booster_motor, varied_booster_impulse / booster_impulse)
+        _scale_motor_thrust(
+            sustainer_motor, varied_sustainer_impulse / sustainer_impulse
+        )
+
+    if mass_ratio_percent != 100.0:
+        booster_motor_mass = _motor_initial_mass(booster_motor)
+        sustainer_motor_mass = _motor_initial_mass(sustainer_motor)
+        sustainer_wet_mass = float(sustainer.mass) + sustainer_motor_mass
+        full_stack_wet_mass = float(full_stack.mass) + booster_motor_mass
+        booster_wet_mass = full_stack_wet_mass - sustainer_wet_mass
+        if booster_wet_mass <= 0:
+            raise ValueError("full-stack mass must exceed sustainer wet mass")
+
+        mass_ratio = (
+            sustainer_wet_mass / booster_wet_mass * mass_ratio_percent / 100.0
+        )
+        varied_booster_wet_mass = full_stack_wet_mass / (1.0 + mass_ratio)
+        varied_sustainer_wet_mass = full_stack_wet_mass - varied_booster_wet_mass
+        booster_dry_mass = varied_booster_wet_mass - booster_motor_mass
+        sustainer_dry_mass = varied_sustainer_wet_mass - sustainer_motor_mass
+        if booster_dry_mass <= 0 or sustainer_dry_mass <= 0:
+            raise ValueError(
+                "mass-ratio variation leaves a stage with no dry mass; narrow its range"
+            )
+        sustainer.mass = sustainer_dry_mass
+        # A full-stack Rocket excludes its active booster motor but includes
+        # the complete sustainer, including the sustainer motor.
+        full_stack.mass = booster_dry_mass + varied_sustainer_wet_mass
+
+    realized_booster_impulse = _tabulated_motor_impulse(booster_motor)
+    realized_sustainer_impulse = _tabulated_motor_impulse(sustainer_motor)
+    return {
+        "booster_impulse_n_s": realized_booster_impulse,
+        "sustainer_impulse_n_s": realized_sustainer_impulse,
+        "total_impulse_n_s": realized_booster_impulse + realized_sustainer_impulse,
+        "nominal_total_impulse_n_s": (
+            nominal_booster_impulse + nominal_sustainer_impulse
+        ),
+    }
 
 
 def _flight_record(
@@ -505,6 +609,12 @@ def run_monte_carlo(
             # integration isolated rocket objects so repeated cases within a
             # worker never retain mutable state from the previous case.
             full_stack, sustainer = (deepcopy(rocket) for rocket in multistage_pair)
+            stage_impulses = _apply_stage_ratio_variations(
+                full_stack,
+                sustainer,
+                parameters["sustainer_booster_impulse_ratio_percent"],
+                parameters["sustainer_booster_mass_ratio_percent"],
+            )
             if sampled_angle <= 0:
                 raise ValueError(
                     "a multistage launch angle must be greater than 0 degrees"
@@ -542,6 +652,7 @@ def run_monte_carlo(
                     "flight_type": "multistage",
                     "heading": sampled_heading,
                     "simulation_parameters": dict(parameters),
+                    "stage_impulses": stage_impulses,
                     "ignition_time_s": result.ignition_time,
                     "ignition_angle_deg_from_vertical": result.staging_tilt,
                     "phases": [
