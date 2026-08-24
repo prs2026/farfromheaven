@@ -351,12 +351,21 @@ def _apply_stage_ratio_variations(
     impulse_ratio_percent: float,
     mass_ratio_percent: float,
 ) -> dict[str, float]:
-    """Redistribute fixed totals to obtain requested sustainer/booster ratios."""
+    """Redistribute fixed totals and return realized stage properties."""
 
     booster_motor = full_stack.motor
     sustainer_motor = sustainer.motor
     nominal_booster_impulse = _tabulated_motor_impulse(booster_motor)
     nominal_sustainer_impulse = _tabulated_motor_impulse(sustainer_motor)
+    booster_motor_mass = _motor_initial_mass(booster_motor)
+    sustainer_motor_mass = _motor_initial_mass(sustainer_motor)
+    nominal_sustainer_wet_mass = float(sustainer.mass) + sustainer_motor_mass
+    nominal_full_stack_wet_mass = float(full_stack.mass) + booster_motor_mass
+    nominal_booster_wet_mass = (
+        nominal_full_stack_wet_mass - nominal_sustainer_wet_mass
+    )
+    if nominal_booster_wet_mass <= 0:
+        raise ValueError("full-stack mass must exceed sustainer wet mass")
 
     if impulse_ratio_percent != 100.0:
         booster_impulse = nominal_booster_impulse
@@ -375,19 +384,16 @@ def _apply_stage_ratio_variations(
         )
 
     if mass_ratio_percent != 100.0:
-        booster_motor_mass = _motor_initial_mass(booster_motor)
-        sustainer_motor_mass = _motor_initial_mass(sustainer_motor)
-        sustainer_wet_mass = float(sustainer.mass) + sustainer_motor_mass
-        full_stack_wet_mass = float(full_stack.mass) + booster_motor_mass
-        booster_wet_mass = full_stack_wet_mass - sustainer_wet_mass
-        if booster_wet_mass <= 0:
-            raise ValueError("full-stack mass must exceed sustainer wet mass")
-
         mass_ratio = (
-            sustainer_wet_mass / booster_wet_mass * mass_ratio_percent / 100.0
+            nominal_sustainer_wet_mass
+            / nominal_booster_wet_mass
+            * mass_ratio_percent
+            / 100.0
         )
-        varied_booster_wet_mass = full_stack_wet_mass / (1.0 + mass_ratio)
-        varied_sustainer_wet_mass = full_stack_wet_mass - varied_booster_wet_mass
+        varied_booster_wet_mass = nominal_full_stack_wet_mass / (1.0 + mass_ratio)
+        varied_sustainer_wet_mass = (
+            nominal_full_stack_wet_mass - varied_booster_wet_mass
+        )
         booster_dry_mass = varied_booster_wet_mass - booster_motor_mass
         sustainer_dry_mass = varied_sustainer_wet_mass - sustainer_motor_mass
         if booster_dry_mass <= 0 or sustainer_dry_mass <= 0:
@@ -401,6 +407,11 @@ def _apply_stage_ratio_variations(
 
     realized_booster_impulse = _tabulated_motor_impulse(booster_motor)
     realized_sustainer_impulse = _tabulated_motor_impulse(sustainer_motor)
+    realized_sustainer_wet_mass = float(sustainer.mass) + sustainer_motor_mass
+    realized_full_stack_wet_mass = float(full_stack.mass) + booster_motor_mass
+    realized_booster_wet_mass = (
+        realized_full_stack_wet_mass - realized_sustainer_wet_mass
+    )
     return {
         "booster_impulse_n_s": realized_booster_impulse,
         "sustainer_impulse_n_s": realized_sustainer_impulse,
@@ -408,6 +419,10 @@ def _apply_stage_ratio_variations(
         "nominal_total_impulse_n_s": (
             nominal_booster_impulse + nominal_sustainer_impulse
         ),
+        "booster_wet_mass_kg": realized_booster_wet_mass,
+        "sustainer_wet_mass_kg": realized_sustainer_wet_mass,
+        "total_wet_mass_kg": realized_full_stack_wet_mass,
+        "nominal_total_wet_mass_kg": nominal_full_stack_wet_mass,
     }
 
 
@@ -609,12 +624,22 @@ def run_monte_carlo(
             # integration isolated rocket objects so repeated cases within a
             # worker never retain mutable state from the previous case.
             full_stack, sustainer = (deepcopy(rocket) for rocket in multistage_pair)
-            stage_impulses = _apply_stage_ratio_variations(
+            stage_properties = _apply_stage_ratio_variations(
                 full_stack,
                 sustainer,
                 parameters["sustainer_booster_impulse_ratio_percent"],
                 parameters["sustainer_booster_mass_ratio_percent"],
             )
+            stage_impulses = {
+                name: value
+                for name, value in stage_properties.items()
+                if "impulse" in name
+            }
+            stage_masses = {
+                name: value
+                for name, value in stage_properties.items()
+                if "mass" in name
+            }
             if sampled_angle <= 0:
                 raise ValueError(
                     "a multistage launch angle must be greater than 0 degrees"
@@ -653,6 +678,7 @@ def run_monte_carlo(
                     "heading": sampled_heading,
                     "simulation_parameters": dict(parameters),
                     "stage_impulses": stage_impulses,
+                    "stage_masses": stage_masses,
                     "ignition_time_s": result.ignition_time,
                     "ignition_angle_deg_from_vertical": result.staging_tilt,
                     "phases": [
