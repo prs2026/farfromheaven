@@ -500,9 +500,31 @@ def build_rocket(
     config = _require(data, "rocket", "root")
     if not isinstance(config, Mapping):
         raise RocketConfigurationError("rocket must be a JSON object")
-    stages = data.get("stages", [])
-    if not isinstance(stages, list):
+    source_stages = data.get("stages", [])
+    if not isinstance(source_stages, list):
         raise RocketConfigurationError("stages must be an array")
+    if not all(isinstance(stage, Mapping) for stage in source_stages):
+        raise RocketConfigurationError("every stages entry must be an object")
+    stages = [dict(stage) for stage in source_stages]
+
+    if str(data.get("selected_rocket", "")).lower() == "full_stack":
+        sustainer_aft = max(
+            (
+                _finite_number(stage.get("location", 0), f"stages[{index}].location")
+                + _finite_number(stage.get("length", 0), f"stages[{index}].length")
+                for index, stage in enumerate(stages)
+                if str(stage.get("part_type", "")).lower() != "booster"
+            ),
+            default=0.0,
+        )
+        # RASAero may give an attached booster the FinCan's forward location,
+        # which describes the attachment plane rather than external end-to-end
+        # geometry. Keep the FinCan fully external and begin the booster at the
+        # aft end of the sustainer.
+        for stage in stages:
+            if str(stage.get("part_type", "")).lower() == "booster":
+                stage["location"] = max(float(stage.get("location", 0)), sustainer_aft)
+        data["stages"] = stages
     base_dir = Path(base_dir)
 
     issues = simulation_readiness_issues(data)
@@ -625,7 +647,11 @@ def build_rocket(
         part_type = str(stage.get("part_type", "")).lower()
         stage_location = _finite_number(stage.get("location", 0), f"stages[{index}].location")
         stage_length = _finite_number(stage.get("length", 0), f"stages[{index}].length")
-        stage_radius = _finite_number(stage.get("diameter", 2 * rocket.radius), f"stages[{index}].diameter") / 2
+        stage_diameter = _finite_number(
+            stage.get("diameter", 2 * rocket.radius),
+            f"stages[{index}].diameter",
+        )
+        stage_radius = stage_diameter / 2
 
         if part_type == "nosecone":
             rocket.add_nose(
@@ -706,11 +732,14 @@ def build_rocket(
                 fin.get("location", fin.get("root_chord", 0)),
                 f"stages[{index}].fins[{fin_index}].location",
             )
+            fin_span = _finite_number(
+                _require(fin, "span", "fin"), "fin.span", positive=True
+            )
             rocket.add_trapezoidal_fins(
                 n=int(_require(fin, "count", f"stages[{index}].fins[{fin_index}]")),
                 root_chord=_finite_number(_require(fin, "root_chord", "fin"), "fin.root_chord", positive=True),
                 tip_chord=_finite_number(_require(fin, "tip_chord", "fin"), "fin.tip_chord", positive=True),
-                span=_finite_number(_require(fin, "span", "fin"), "fin.span", positive=True),
+                span=fin_span,
                 position=_rocket_position(leading_edge_from_nose, total_length, orientation),
                 sweep_length=_finite_number(fin.get("sweep_distance", 0), "fin.sweep_distance"),
                 cant_angle=_finite_number(fin.get("cant_angle", 0), "fin.cant_angle"),
