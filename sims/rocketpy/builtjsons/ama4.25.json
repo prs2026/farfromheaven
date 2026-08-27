@@ -1,0 +1,397 @@
+{
+  "format": "rocketpy-cdx1",
+  "format_version": 2,
+  "units": {
+    "length": "m",
+    "mass": "kg",
+    "time": "s",
+    "temperature": "K",
+    "pressure": "Pa"
+  },
+  "source": {
+    "file": "AMA 4.25-3 Current Booster.CDX1",
+    "format": "RASAero II CDX1"
+  },
+  "launch_site": {
+    "altitude": 1127.76,
+    "pressure": 101320.75888000001,
+    "temperature": 299.8166666666667,
+    "wind_speed": 2.2352,
+    "rod_angle": 5.0,
+    "rod_length": 6.096
+  },
+  "default_rocket": "full_stack",
+  "rockets": {
+    "full_stack": {
+      "rocket": {
+        "name": "AMA 4.25-3 Current Booster - Full Stack",
+        "radius": 0.053974999999999995,
+        "mass_source": "RASAero BoosterLaunchWt (lb converted to kg; complete vehicle with booster attached)",
+        "inertia": {
+          "I11": 20.13396614291911,
+          "I22": 20.13396614291911,
+          "I33": 0.029256172253818706,
+          "I12": 0.0,
+          "I13": 0.0,
+          "I23": 0.0
+        },
+        "aero_curves": "..\\input files\\ama4.25to3stackdrag.CSV",
+        "aero_curve_alpha": 0.0,
+        "aero_plot_max_mach": 8.0,
+        "thrust_curve": "O8100.eng",
+        "motor": {
+          "type": "solid",
+          "grain_outer_radius": 0.0508001015,
+          "grain_density": 1799.1938061632031,
+          "grain_number": 1,
+          "grain_separation": 0.0,
+          "minimum_dry_mass": 0.01,
+          "propellant_length": 1.181102362,
+          "geometry_source": "RASP motor diameter and length; density assumed as 0.065 lb/in^3"
+        },
+        "center_of_mass_without_motor": 2.121662,
+        "coordinate_system_orientation": "tail_to_nose",
+        "engine_name": "O8100  (TsKrush)",
+        "rail_buttons": {
+          "upper_position": null,
+          "lower_position": null,
+          "position_reference": "nose_tip",
+          "angular_position": 45.0,
+          "radius": 0.053974999999999995
+        },
+        "parachutes": [
+          {
+            "name": "recovery_1",
+            "enabled": false,
+            "device_type": "None",
+            "event_type": "None",
+            "trigger": null,
+            "deployment_altitude": 304.8,
+            "diameter": 0.0254,
+            "cd": 1.33,
+            "sampling_rate": 100,
+            "lag": 0.0,
+            "noise": [
+              0.0,
+              0.0,
+              0.0
+            ]
+          },
+          {
+            "name": "recovery_2",
+            "enabled": false,
+            "device_type": "None",
+            "event_type": "None",
+            "trigger": null,
+            "deployment_altitude": 304.8,
+            "diameter": 0.0254,
+            "cd": 1.33,
+            "sampling_rate": 100,
+            "lag": 0.0,
+            "noise": [
+              0.0,
+              0.0,
+              0.0
+            ]
+          }
+        ],
+        "launch_mass": 32.20505827
+      },
+      "stages": [
+        {
+          "part_type": "NoseCone",
+          "length": 0.381,
+          "diameter": 0.07619999999999999,
+          "inside_diameter": 0.0,
+          "location": 0.0,
+          "shoulder_length": 0.0,
+          "boattail_length": 0.0,
+          "boattail_rear_diameter": 0.0,
+          "color": "Black",
+          "fins": [],
+          "shape": "Conical"
+        },
+        {
+          "part_type": "BodyTube",
+          "length": 1.4986,
+          "diameter": 0.07619999999999999,
+          "inside_diameter": 0.0,
+          "location": 0.381,
+          "shoulder_length": 0.0,
+          "boattail_length": 0.0,
+          "boattail_rear_diameter": 0.0,
+          "color": "Black",
+          "fins": []
+        },
+        {
+          "part_type": "FinCan",
+          "length": 0.2032,
+          "diameter": 0.079375,
+          "inside_diameter": 0.07619999999999999,
+          "location": 1.8796,
+          "shoulder_length": 0.0254,
+          "boattail_length": 0.0,
+          "boattail_rear_diameter": 0.0,
+          "color": "Black",
+          "fins": [
+            {
+              "count": 4,
+              "root_chord": 0.2032,
+              "span": 0.08889999999999999,
+              "sweep_distance": 0.15239999999999998,
+              "tip_chord": 0.1016,
+              "thickness": 0.0047498,
+              "leading_edge_radius": 0.000254,
+              "location": 0.2032,
+              "airfoil_section": "Hexagonal"
+            }
+          ]
+        },
+        {
+          "part_type": "Booster",
+          "length": 1.5875,
+          "diameter": 0.10794999999999999,
+          "inside_diameter": 0.079375,
+          "location": 1.8796,
+          "shoulder_length": 0.0508,
+          "boattail_length": 0.0,
+          "boattail_rear_diameter": 0.0,
+          "color": "Black",
+          "fins": [
+            {
+              "count": 4,
+              "root_chord": 0.254,
+              "span": 0.15239999999999998,
+              "sweep_distance": 0.127,
+              "tip_chord": 0.127,
+              "thickness": 0.0047498,
+              "leading_edge_radius": 0.000254,
+              "location": 0.254,
+              "airfoil_section": "Hexagonal"
+            }
+          ]
+        }
+      ]
+    },
+    "sustainer": {
+      "rocket": {
+        "name": "AMA 4.25-3 Current Booster - Sustainer",
+        "radius": 0.0396875,
+        "mass_source": "RASAero SustainerLaunchWt (lb converted to kg)",
+        "inertia": {
+          "I11": 2.0456496381325864,
+          "I22": 2.0456496381325864,
+          "I33": 0.004451660609009766,
+          "I12": 0.0,
+          "I13": 0.0,
+          "I23": 0.0
+        },
+        "aero_curves": "..\\input files\\ama4.25to3sustainerdrag.CSV",
+        "aero_curve_alpha": 0.0,
+        "aero_plot_max_mach": 8.0,
+        "thrust_curve": "N4007.eng",
+        "motor": {
+          "type": "solid",
+          "grain_outer_radius": 0.038100076000000004,
+          "grain_density": 1799.1938061632031,
+          "grain_number": 1,
+          "grain_separation": 0.0,
+          "minimum_dry_mass": 0.01,
+          "propellant_length": 1.092202184,
+          "geometry_source": "RASP motor diameter and length; density assumed as 0.065 lb/in^3"
+        },
+        "center_of_mass_without_motor": 1.203452,
+        "coordinate_system_orientation": "tail_to_nose",
+        "engine_name": "N4062  (TsKrush)",
+        "rail_buttons": {
+          "upper_position": null,
+          "lower_position": null,
+          "position_reference": "nose_tip",
+          "angular_position": 45.0,
+          "radius": 0.0396875
+        },
+        "parachutes": [
+          {
+            "name": "recovery_1",
+            "enabled": false,
+            "device_type": "None",
+            "event_type": "None",
+            "trigger": null,
+            "deployment_altitude": 304.8,
+            "diameter": 0.0254,
+            "cd": 1.33,
+            "sampling_rate": 100,
+            "lag": 0.0,
+            "noise": [
+              0.0,
+              0.0,
+              0.0
+            ]
+          },
+          {
+            "name": "recovery_2",
+            "enabled": false,
+            "device_type": "None",
+            "event_type": "None",
+            "trigger": null,
+            "deployment_altitude": 304.8,
+            "diameter": 0.0254,
+            "cd": 1.33,
+            "sampling_rate": 100,
+            "lag": 0.0,
+            "noise": [
+              0.0,
+              0.0,
+              0.0
+            ]
+          }
+        ],
+        "launch_mass": 10.886216880000001
+      },
+      "stages": [
+        {
+          "part_type": "NoseCone",
+          "length": 0.381,
+          "diameter": 0.07619999999999999,
+          "inside_diameter": 0.0,
+          "location": 0.0,
+          "shoulder_length": 0.0,
+          "boattail_length": 0.0,
+          "boattail_rear_diameter": 0.0,
+          "color": "Black",
+          "fins": [],
+          "shape": "Conical"
+        },
+        {
+          "part_type": "BodyTube",
+          "length": 1.4986,
+          "diameter": 0.07619999999999999,
+          "inside_diameter": 0.0,
+          "location": 0.381,
+          "shoulder_length": 0.0,
+          "boattail_length": 0.0,
+          "boattail_rear_diameter": 0.0,
+          "color": "Black",
+          "fins": []
+        },
+        {
+          "part_type": "FinCan",
+          "length": 0.2032,
+          "diameter": 0.079375,
+          "inside_diameter": 0.07619999999999999,
+          "location": 1.8796,
+          "shoulder_length": 0.0254,
+          "boattail_length": 0.0,
+          "boattail_rear_diameter": 0.0,
+          "color": "Black",
+          "fins": [
+            {
+              "count": 4,
+              "root_chord": 0.2032,
+              "span": 0.08889999999999999,
+              "sweep_distance": 0.15239999999999998,
+              "tip_chord": 0.1016,
+              "thickness": 0.0047498,
+              "leading_edge_radius": 0.000254,
+              "location": 0.2032,
+              "airfoil_section": "Hexagonal"
+            }
+          ]
+        }
+      ]
+    },
+    "booster": {
+      "rocket": {
+        "name": "AMA 4.25-3 Current Booster - Booster",
+        "radius": 0.053974999999999995,
+        "mass_source": "Full-stack dry mass minus sustainer wet mass",
+        "inertia": {
+          "I11": 1.9384700024349109,
+          "I22": 1.9384700024349109,
+          "I33": 0.013398761033623932,
+          "I12": 0.0,
+          "I13": 0.0,
+          "I23": 0.0
+        },
+        "aero_curves": null,
+        "aero_curve_alpha": 0.0,
+        "aero_plot_max_mach": 8.0,
+        "thrust_curve": null,
+        "motor": null,
+        "center_of_mass_without_motor": 0.7109351914893618,
+        "coordinate_system_orientation": "tail_to_nose",
+        "engine_name": "O8100  (TsKrush)",
+        "rail_buttons": {
+          "upper_position": null,
+          "lower_position": null,
+          "position_reference": "nose_tip",
+          "angular_position": 45.0,
+          "radius": 0.053974999999999995
+        },
+        "parachutes": [
+          {
+            "name": "recovery_1",
+            "enabled": false,
+            "device_type": "None",
+            "event_type": "None",
+            "trigger": null,
+            "deployment_altitude": 304.8,
+            "diameter": 0.0254,
+            "cd": 1.33,
+            "sampling_rate": 100,
+            "lag": 0.0,
+            "noise": [
+              0.0,
+              0.0,
+              0.0
+            ]
+          },
+          {
+            "name": "recovery_2",
+            "enabled": false,
+            "device_type": "None",
+            "event_type": "None",
+            "trigger": null,
+            "deployment_altitude": 304.8,
+            "diameter": 0.0254,
+            "cd": 1.33,
+            "sampling_rate": 100,
+            "lag": 0.0,
+            "noise": [
+              0.0,
+              0.0,
+              0.0
+            ]
+          }
+        ],
+        "mass": 9.19833739
+      },
+      "stages": [
+        {
+          "part_type": "Booster",
+          "length": 1.5875,
+          "diameter": 0.10794999999999999,
+          "inside_diameter": 0.079375,
+          "location": 0.0,
+          "shoulder_length": 0.0508,
+          "boattail_length": 0.0,
+          "boattail_rear_diameter": 0.0,
+          "color": "Black",
+          "fins": [
+            {
+              "count": 4,
+              "root_chord": 0.254,
+              "span": 0.15239999999999998,
+              "sweep_distance": 0.127,
+              "tip_chord": 0.127,
+              "thickness": 0.0047498,
+              "leading_edge_radius": 0.000254,
+              "location": 0.254,
+              "airfoil_section": "Hexagonal"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

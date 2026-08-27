@@ -36,7 +36,7 @@
       "launch_angle": {
         "distribution": "normal",
         "mean": 90.0,
-        "std": 3.0,
+        "std": 1,
         "min": 0.01,
         "max": 90.0
       },
@@ -55,12 +55,12 @@
       "booster_wet_mass_percent": {
         "distribution": "normal",
         "mean": 100.0,
-        "std": 2.0
+        "std": 5.0
       },
       "sustainer_wet_mass_percent": {
         "distribution": "normal",
         "mean": 100.0,
-        "std": 2.0
+        "std": 5.0
       },
       "max_time": 600.0,
       "max_time_step": 0.5,
