@@ -9,9 +9,10 @@ Standalone usage::
 
     python montecarlorunner.py montecarlo_config.json
 
-Simulation parameters in the JSON may be fixed numbers, Gaussian objects with
-``mean`` and ``std_dev``, or deterministic sweep objects with ``min`` and
-``max``. Set ``simulation.workers`` to the number of launches to run
+Every entry in ``simulation.parameters`` may be a fixed number, a normal
+distribution object with ``mean`` and ``std``, or a deterministic sweep object
+with ``min`` and ``max``. ``gaussian`` and the legacy ``std_dev`` field remain
+supported. Set ``simulation.workers`` to the number of launches to run
 concurrently. Paths are resolved relative to the configuration file.
 """
 
@@ -37,6 +38,7 @@ from threading import BrokenBarrierError
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+import numpy as np
 from rocketpy import Environment, Flight, Rocket
 
 try:
@@ -74,9 +76,14 @@ SIMULATION_PARAMETER_DEFAULTS = {
     "rail_length": 6.0,
     "max_time": 600.0,
     "max_time_step": 0.5,
+    "rtol": 1e-4,
+    "atol": 1e-6,
     "coast_period": 5.0,
+    "sustainer_ignition_max_tilt_deg": 90.0,
     "sustainer_booster_impulse_ratio_percent": 100.0,
     "sustainer_booster_mass_ratio_percent": 100.0,
+    "booster_wet_mass_percent": 100.0,
+    "sustainer_wet_mass_percent": 100.0,
 }
 
 _PROCESS_RUN_CASE = None
@@ -118,6 +125,7 @@ def _initialize_process_worker(context_path: str, startup_barrier: Any) -> None:
         raise RuntimeError("parallel simulation requires the dill package")
     with Path(context_path).open("rb") as context_file:
         _PROCESS_RUN_CASE = dill.load(context_file)
+    print(f"Worker {os.getpid()} loaded simulation context", flush=True)
     try:
         startup_barrier.wait(timeout=300)
     except BrokenBarrierError as exc:
@@ -199,12 +207,20 @@ def _validate_parameter(name: str, value: Any) -> float:
         "rail_length",
         "max_time",
         "max_time_step",
+        "rtol",
+        "atol",
         "sustainer_booster_impulse_ratio_percent",
         "sustainer_booster_mass_ratio_percent",
+        "booster_wet_mass_percent",
+        "sustainer_wet_mass_percent",
     } and value <= 0:
         raise ValueError(f"{name} must be positive")
     if name == "coast_period" and value < 0:
         raise ValueError("coast_period cannot be negative")
+    if name == "sustainer_ignition_max_tilt_deg" and not 0 <= value <= 90:
+        raise ValueError(
+            "sustainer_ignition_max_tilt_deg must be in the range [0, 90] degrees"
+        )
     return value
 
 
@@ -218,7 +234,18 @@ def _sample_parameter(
     if not isinstance(definition, Mapping):
         return _validate_parameter(name, definition)
 
-    distribution = str(definition.get("distribution", "fixed")).lower()
+    distribution_value = definition.get("distribution")
+    if distribution_value is None:
+        if "mean" in definition and ("std" in definition or "std_dev" in definition):
+            distribution = "normal"
+        elif "min" in definition and "max" in definition:
+            distribution = "sweep"
+        else:
+            distribution = "fixed"
+    else:
+        distribution = str(distribution_value).strip().lower()
+    if distribution in {"gaussian", "standard"}:
+        distribution = "normal"
     if distribution == "fixed":
         if "value" not in definition:
             raise ValueError(f"fixed parameter {name!r} requires 'value'")
@@ -240,17 +267,30 @@ def _sample_parameter(
         )
         return _validate_parameter(name, minimum + fraction * (maximum - minimum))
 
-    if distribution == "gaussian":
-        if "mean" not in definition or "std_dev" not in definition:
+    if distribution == "normal":
+        if "mean" not in definition or not (
+            "std" in definition or "std_dev" in definition
+        ):
             raise ValueError(
-                f"gaussian parameter {name!r} requires 'mean' and 'std_dev'"
+                f"normal parameter {name!r} requires 'mean' and 'std'"
             )
         mean = float(definition["mean"])
-        standard_deviation = float(definition["std_dev"])
+        if "std" in definition and "std_dev" in definition:
+            std = float(definition["std"])
+            legacy_std = float(definition["std_dev"])
+            if std != legacy_std:
+                raise ValueError(
+                    f"normal parameter {name!r} has conflicting 'std' and 'std_dev'"
+                )
+            standard_deviation = std
+        else:
+            standard_deviation = float(
+                definition.get("std", definition.get("std_dev"))
+            )
         if not math.isfinite(mean) or not math.isfinite(standard_deviation):
-            raise ValueError(f"gaussian settings for {name!r} must be finite")
+            raise ValueError(f"normal settings for {name!r} must be finite")
         if standard_deviation < 0:
-            raise ValueError(f"gaussian std_dev for {name!r} cannot be negative")
+            raise ValueError(f"normal std for {name!r} cannot be negative")
         minimum = definition.get("min")
         maximum = definition.get("max")
         for _ in range(10_000):
@@ -270,12 +310,12 @@ def _sample_parameter(
             except ValueError:
                 continue
         raise RuntimeError(
-            f"could not sample a valid value for gaussian parameter {name!r}"
+            f"could not sample a valid value for normal parameter {name!r}"
         )
 
     raise ValueError(
         f"parameter {name!r} has unsupported distribution {distribution!r}; "
-        "use fixed, gaussian, or sweep"
+        "use fixed, normal, gaussian, standard, or sweep"
     )
 
 
@@ -326,7 +366,7 @@ def _scale_motor_thrust(motor: Any, scalar: float) -> None:
 
     source = motor.thrust.source
     if callable(source):
-        raise ValueError("impulse-ratio variation requires tabulated thrust curves")
+        raise ValueError("impulse variation requires tabulated thrust curves")
     motor.thrust.set_source(
         [[float(point[0]), float(point[1]) * scalar] for point in source]
     )
@@ -350,8 +390,15 @@ def _apply_stage_ratio_variations(
     sustainer: Rocket,
     impulse_ratio_percent: float,
     mass_ratio_percent: float,
+    booster_wet_mass_percent: float = 100.0,
+    sustainer_wet_mass_percent: float = 100.0,
 ) -> dict[str, float]:
-    """Redistribute fixed totals and return realized stage properties."""
+    """Apply impulse and stage-mass scaling and return realized properties.
+
+    The legacy mass-ratio input redistributes a fixed total stack wet mass.
+    The two stage-specific inputs instead scale each nominal stage wet mass
+    independently, allowing the total stack mass to change.
+    """
 
     booster_motor = full_stack.motor
     sustainer_motor = sustainer.motor
@@ -368,19 +415,20 @@ def _apply_stage_ratio_variations(
         raise ValueError("full-stack mass must exceed sustainer wet mass")
 
     if impulse_ratio_percent != 100.0:
-        booster_impulse = nominal_booster_impulse
-        sustainer_impulse = nominal_sustainer_impulse
-        if booster_impulse <= 0 or sustainer_impulse <= 0:
-            raise ValueError("impulse-ratio variation requires two powered stages")
-        impulse_ratio = (
-            sustainer_impulse / booster_impulse * impulse_ratio_percent / 100.0
-        )
-        total_impulse = booster_impulse + sustainer_impulse
-        varied_booster_impulse = total_impulse / (1.0 + impulse_ratio)
-        varied_sustainer_impulse = total_impulse - varied_booster_impulse
-        _scale_motor_thrust(booster_motor, varied_booster_impulse / booster_impulse)
-        _scale_motor_thrust(
-            sustainer_motor, varied_sustainer_impulse / sustainer_impulse
+        if nominal_booster_impulse <= 0 or nominal_sustainer_impulse <= 0:
+            raise ValueError("impulse variation requires two powered stages")
+        impulse_scalar = impulse_ratio_percent / 100.0
+        _scale_motor_thrust(booster_motor, impulse_scalar)
+        _scale_motor_thrust(sustainer_motor, impulse_scalar)
+
+    independent_mass_scaling = (
+        booster_wet_mass_percent != 100.0
+        or sustainer_wet_mass_percent != 100.0
+    )
+    if mass_ratio_percent != 100.0 and independent_mass_scaling:
+        raise ValueError(
+            "sustainer_booster_mass_ratio_percent cannot be varied together with "
+            "booster_wet_mass_percent or sustainer_wet_mass_percent"
         )
 
     if mass_ratio_percent != 100.0:
@@ -394,6 +442,15 @@ def _apply_stage_ratio_variations(
         varied_sustainer_wet_mass = (
             nominal_full_stack_wet_mass - varied_booster_wet_mass
         )
+    else:
+        varied_booster_wet_mass = (
+            nominal_booster_wet_mass * booster_wet_mass_percent / 100.0
+        )
+        varied_sustainer_wet_mass = (
+            nominal_sustainer_wet_mass * sustainer_wet_mass_percent / 100.0
+        )
+
+    if mass_ratio_percent != 100.0 or independent_mass_scaling:
         booster_dry_mass = varied_booster_wet_mass - booster_motor_mass
         sustainer_dry_mass = varied_sustainer_wet_mass - sustainer_motor_mass
         if booster_dry_mass <= 0 or sustainer_dry_mass <= 0:
@@ -419,10 +476,19 @@ def _apply_stage_ratio_variations(
         "nominal_total_impulse_n_s": (
             nominal_booster_impulse + nominal_sustainer_impulse
         ),
+        "impulse_scalar": impulse_ratio_percent / 100.0,
         "booster_wet_mass_kg": realized_booster_wet_mass,
         "sustainer_wet_mass_kg": realized_sustainer_wet_mass,
         "total_wet_mass_kg": realized_full_stack_wet_mass,
+        "nominal_booster_wet_mass_kg": nominal_booster_wet_mass,
+        "nominal_sustainer_wet_mass_kg": nominal_sustainer_wet_mass,
         "nominal_total_wet_mass_kg": nominal_full_stack_wet_mass,
+        "booster_wet_mass_scalar": (
+            realized_booster_wet_mass / nominal_booster_wet_mass
+        ),
+        "sustainer_wet_mass_scalar": (
+            realized_sustainer_wet_mass / nominal_sustainer_wet_mass
+        ),
     }
 
 
@@ -453,6 +519,32 @@ def _flight_record(
             "impact_velocity": _optional_float(flight, "impact_velocity"),
         },
     }
+
+
+def _environment_from_wind_plan(
+    plan: Mapping[str, Any], simulation_index: int
+) -> Environment:
+    """Construct one RocketPy environment from a compact sampled-wind plan."""
+
+    height = np.asarray(plan["height_m"], dtype=float)
+    wind_u_values = np.asarray(plan["wind_u_m_s"], dtype=float)[simulation_index]
+    wind_v_values = np.asarray(plan["wind_v_m_s"], dtype=float)[simulation_index]
+    environment = Environment(
+        latitude=float(plan["latitude"]),
+        longitude=float(plan["longitude"]),
+        elevation=float(plan["elevation_m"]),
+        timezone=str(plan["timezone"]),
+        date=tuple(plan["date_tuple"]),
+        max_expected_height=float(plan["max_expected_height_m"]),
+    )
+    environment.set_atmospheric_model(
+        type="custom_atmosphere",
+        pressure=np.asarray(plan["pressure"], dtype=float),
+        temperature=np.asarray(plan["temperature"], dtype=float),
+        wind_u=np.column_stack((height, wind_u_values)),
+        wind_v=np.column_stack((height, wind_v_values)),
+    )
+    return environment
 
 
 def _merge_phase_solutions(flights: Sequence[Flight]) -> list[list[float]]:
@@ -527,6 +619,9 @@ def run_monte_carlo(
     parameter_variations: Mapping[str, Any] | None = None,
     workers: int = 1,
     native_threads_per_worker: int = 1,
+    environment_variations: Sequence[Environment] | None = None,
+    environment_profile_variations: Mapping[str, Any] | None = None,
+    environment_sample_metadata: Sequence[Mapping[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Run a launch-angle Monte Carlo sweep and write its data to a pickle.
 
@@ -565,6 +660,51 @@ def run_monte_carlo(
         raise ValueError("native_threads_per_worker must be positive")
     worker_count = min(workers, number_of_simulations)
 
+    if environment_variations is not None and environment_profile_variations is not None:
+        raise ValueError(
+            "use either environment_variations or environment_profile_variations, not both"
+        )
+    if environment_profile_variations is not None:
+        wind_u_matrix = np.asarray(
+            environment_profile_variations.get("wind_u_m_s"), dtype=float
+        )
+        wind_v_matrix = np.asarray(
+            environment_profile_variations.get("wind_v_m_s"), dtype=float
+        )
+        height_vector = np.asarray(
+            environment_profile_variations.get("height_m"), dtype=float
+        )
+        expected_shape = (number_of_simulations, len(height_vector))
+        if wind_u_matrix.shape != expected_shape or wind_v_matrix.shape != expected_shape:
+            raise ValueError(
+                "environment_profile_variations wind matrices must have shape "
+                f"{expected_shape}"
+            )
+        # Workers receive only the compact numeric plan and build their own
+        # assigned Environment on demand. Do not capture even the base
+        # RocketPy Environment in the serialized worker closure.
+        case_environments: tuple[Environment, ...] = ()
+    elif environment_variations is None:
+        case_environments = (environment,) * number_of_simulations
+    else:
+        case_environments = tuple(environment_variations)
+        if len(case_environments) != number_of_simulations:
+            raise ValueError(
+                "environment_variations must contain one Environment per simulation"
+            )
+        if not all(isinstance(item, Environment) for item in case_environments):
+            raise TypeError("every environment variation must be an Environment")
+    if environment_sample_metadata is None:
+        case_environment_metadata: tuple[Mapping[str, Any] | None, ...] = (
+            (None,) * number_of_simulations
+        )
+    else:
+        case_environment_metadata = tuple(environment_sample_metadata)
+        if len(case_environment_metadata) != number_of_simulations:
+            raise ValueError(
+                "environment_sample_metadata must contain one entry per simulation"
+            )
+
     launch_angle = float(launch_angle)
     launch_angle_std_dev = float(launch_angle_std_dev)
     heading = float(heading)
@@ -587,6 +727,11 @@ def run_monte_carlo(
         "max_time": max_time,
         "max_time_step": max_time_step,
         "coast_period": coast_period,
+        "rtol": SIMULATION_PARAMETER_DEFAULTS["rtol"],
+        "atol": SIMULATION_PARAMETER_DEFAULTS["atol"],
+        "sustainer_ignition_max_tilt_deg": SIMULATION_PARAMETER_DEFAULTS[
+            "sustainer_ignition_max_tilt_deg"
+        ],
     }
     if parameter_variations is not None:
         parameter_definitions.update(parameter_variations)
@@ -618,6 +763,19 @@ def run_monte_carlo(
         sampled_max_time = parameters["max_time"]
         sampled_max_time_step = parameters["max_time_step"]
         sampled_coast_period = parameters["coast_period"]
+        sampled_rtol = parameters["rtol"]
+        sampled_atol = parameters["atol"]
+        sampled_ignition_max_tilt = parameters[
+            "sustainer_ignition_max_tilt_deg"
+        ]
+        case_environment = (
+            _environment_from_wind_plan(
+                environment_profile_variations, simulation_index
+            )
+            if environment_profile_variations is not None
+            else case_environments[simulation_index]
+        )
+        weather_sample = case_environment_metadata[simulation_index]
 
         if multistage_pair is not None:
             # RocketPy builds interpolation caches during a Flight. Give each
@@ -629,6 +787,8 @@ def run_monte_carlo(
                 sustainer,
                 parameters["sustainer_booster_impulse_ratio_percent"],
                 parameters["sustainer_booster_mass_ratio_percent"],
+                parameters["booster_wet_mass_percent"],
+                parameters["sustainer_wet_mass_percent"],
             )
             stage_impulses = {
                 name: value
@@ -647,13 +807,16 @@ def run_monte_carlo(
             result = runfullstacksim(
                 full_stack,
                 sustainer,
-                environment,
+                case_environment,
                 sampled_max_time,
                 coast_period=sampled_coast_period,
                 rail_length=sampled_rail_length,
                 rod_angle=90.0 - sampled_angle,
                 heading=sampled_heading,
                 max_time_step=sampled_max_time_step,
+                rtol=sampled_rtol,
+                atol=sampled_atol,
+                sustainer_ignition_max_tilt_deg=sampled_ignition_max_tilt,
                 return_details=True,
             )
             phase_flights = result.flights
@@ -679,8 +842,12 @@ def run_monte_carlo(
                     "simulation_parameters": dict(parameters),
                     "stage_impulses": stage_impulses,
                     "stage_masses": stage_masses,
+                    "weather_sample": dict(weather_sample) if weather_sample else None,
                     "ignition_time_s": result.ignition_time,
                     "ignition_angle_deg_from_vertical": result.staging_tilt,
+                    "sustainer_ignited": result.sustainer_ignited,
+                    "tilt_lockout_triggered": result.tilt_lockout_triggered,
+                    "tilt_lockout_threshold_deg": sampled_ignition_max_tilt,
                     "phases": [
                         {
                             "name": phase.name,
@@ -709,14 +876,14 @@ def run_monte_carlo(
             worker_rocket = deepcopy(rocket)
             flight = Flight(
                 rocket=worker_rocket,
-                environment=environment,
+                environment=case_environment,
                 rail_length=sampled_rail_length,
                 inclination=sampled_angle,
                 heading=sampled_heading,
                 max_time=sampled_max_time,
                 max_time_step=sampled_max_time_step,
-                rtol=1e-4,
-                atol=1e-6,
+                rtol=sampled_rtol,
+                atol=sampled_atol,
                 time_overshoot=True,
                 name=(
                     f"Monte Carlo {simulation_index + 1}: "
@@ -735,6 +902,7 @@ def run_monte_carlo(
                     "flight_type": "independent",
                     "heading": sampled_heading,
                     "simulation_parameters": dict(parameters),
+                    "weather_sample": dict(weather_sample) if weather_sample else None,
                 }
             )
             case_records.append(record)
@@ -779,8 +947,15 @@ def run_monte_carlo(
         # through ProcessPoolExecutor initargs makes Windows copy it to each
         # child serially, which can stagger worker startup by minutes.
         worker_context_path = shard_directory / "worker_context.dill"
+        context_start = time.perf_counter()
+        print("Serializing compact worker context...", flush=True)
         with worker_context_path.open("wb") as context_file:
             dill.dump(run_case, context_file, recurse=True)
+        print(
+            f"Worker context ready: {worker_context_path.stat().st_size / 1_048_576:.1f} MiB "
+            f"in {time.perf_counter() - context_start:.2f} s. Starting workers...",
+            flush=True,
+        )
         process_context = get_context("spawn")
         startup_barrier = process_context.Barrier(worker_count)
         with _native_thread_limit(native_threads_per_worker):
@@ -828,6 +1003,14 @@ def run_monte_carlo(
                 "multistage" if multistage_pair is not None else "independent"
             ),
             "random_seed": random_seed,
+            "weather_sampling_enabled": (
+                environment_variations is not None
+                or environment_profile_variations is not None
+            ),
+            "weather_samples": [
+                dict(item) if item is not None else None
+                for item in case_environment_metadata
+            ],
         },
         "environment": {
             "latitude": _optional_float(environment, "latitude"),
@@ -852,6 +1035,195 @@ def run_monte_carlo(
     shard_directory.rmdir()
 
     return payload
+
+
+def _daily_sample_hours(calls_per_day: int) -> tuple[int, ...]:
+    if isinstance(calls_per_day, bool) or not isinstance(calls_per_day, int):
+        raise ValueError("environment.wind_sampling.calls_per_day must be an integer")
+    if not 1 <= calls_per_day <= 24:
+        raise ValueError(
+            "environment.wind_sampling.calls_per_day must be in the range [1, 24]"
+        )
+    return tuple((index * 24) // calls_per_day for index in range(calls_per_day))
+
+
+def _build_openmeteo_wind_ensemble(
+    *,
+    create_environment: Any,
+    latitude: float,
+    longitude: float,
+    launch_date: str,
+    launch_time: str,
+    timezone_name: str,
+    elevation_m: float,
+    model: str | None,
+    endpoint: str,
+    max_expected_height_m: float,
+    extend_above_model_top: bool,
+    calls_per_day: int,
+    days_either_side: int,
+    time_of_day_std_hours: float,
+    number_of_simulations: int,
+    random_seed: int | None,
+    profile_source_label: str = "Open-Meteo",
+) -> tuple[dict[str, Any], list[dict[str, Any]], Any]:
+    """Fetch a time/day weather space and sample correlated Gaussian winds."""
+
+    if (
+        isinstance(days_either_side, bool)
+        or not isinstance(days_either_side, int)
+        or days_either_side < 0
+    ):
+        raise ValueError(
+            "environment.wind_sampling.days_either_side must be a non-negative integer"
+        )
+    time_of_day_std_hours = float(time_of_day_std_hours)
+    if not math.isfinite(time_of_day_std_hours) or time_of_day_std_hours < 0:
+        raise ValueError(
+            "environment.wind_sampling.time_of_day_std_hours must be non-negative"
+        )
+
+    sample_hours = _daily_sample_hours(calls_per_day)
+    launch_hour = datetime.fromisoformat(f"{launch_date}T{launch_time}")
+    dates = [
+        launch_hour.date() + timedelta(days=offset)
+        for offset in range(-days_either_side, days_either_side + 1)
+    ]
+    requests = [(date, hour) for date in dates for hour in sample_hours]
+    total_requests = len(requests)
+    profiles_by_hour: dict[int, list[Any]] = {hour: [] for hour in sample_hours}
+    dated_results: list[tuple[datetime, Any]] = []
+
+    print(
+        f"Sampling {profile_source_label} wind space: {total_requests} profiles "
+        f"({calls_per_day}/day across {len(dates)} days)",
+        flush=True,
+    )
+    for request_index, (sample_date, sample_hour) in enumerate(requests, start=1):
+        date_text = sample_date.isoformat()
+        time_text = f"{sample_hour:02d}:00"
+        print(
+            f"{profile_source_label} profile {request_index}/{total_requests}: "
+            f"{date_text} {time_text} {timezone_name}",
+            flush=True,
+        )
+        result = create_environment(
+            latitude=latitude,
+            longitude=longitude,
+            date=date_text,
+            time=time_text,
+            timezone_name=timezone_name,
+            elevation_m=elevation_m,
+            model=model,
+            endpoint=endpoint,
+            max_expected_height_m=max_expected_height_m,
+            extend_above_model_top=extend_above_model_top,
+        )
+        profiles_by_hour[sample_hour].append(result)
+        dated_results.append(
+            (datetime.combine(sample_date, datetime.min.time()).replace(hour=sample_hour), result)
+        )
+        print(
+            f"Completed {profile_source_label} profile {request_index}/{total_requests}",
+            flush=True,
+        )
+
+    def circular_hour_distance(left: float, right: float) -> float:
+        difference = abs(left - right) % 24.0
+        return min(difference, 24.0 - difference)
+
+    requested_hour_value = launch_hour.hour + launch_hour.minute / 60.0
+    baseline_datetime, baseline_result = min(
+        dated_results,
+        key=lambda item: (
+            abs((item[0].date() - launch_hour.date()).days),
+            circular_hour_distance(item[0].hour, requested_hour_value),
+        ),
+    )
+    height_grid = np.union1d(
+        np.asarray(baseline_result.wind_u, dtype=float)[:, 0],
+        np.asarray(baseline_result.wind_v, dtype=float)[:, 0],
+    )
+    ensembles: dict[int, tuple[np.ndarray, np.ndarray]] = {}
+    for sample_hour, results in profiles_by_hour.items():
+        rows = []
+        for result in results:
+            wind_u = np.asarray(result.wind_u, dtype=float)
+            wind_v = np.asarray(result.wind_v, dtype=float)
+            rows.append(
+                np.concatenate(
+                    (
+                        np.interp(height_grid, wind_u[:, 0], wind_u[:, 1]),
+                        np.interp(height_grid, wind_v[:, 0], wind_v[:, 1]),
+                    )
+                )
+            )
+        matrix = np.asarray(rows, dtype=float)
+        ensembles[sample_hour] = (matrix.mean(axis=0), matrix - matrix.mean(axis=0))
+
+    random_generator = random.Random(random_seed)
+    sampled_wind_u: list[np.ndarray] = []
+    sampled_wind_v: list[np.ndarray] = []
+    sample_metadata: list[dict[str, Any]] = []
+    date_tuple = launch_hour.timetuple()[:4]
+    for simulation_index in range(number_of_simulations):
+        sampled_time = (
+            requested_hour_value
+            if time_of_day_std_hours == 0
+            else random_generator.gauss(requested_hour_value, time_of_day_std_hours)
+        ) % 24.0
+        condition_hour = min(
+            sample_hours,
+            key=lambda hour: circular_hour_distance(hour, sampled_time),
+        )
+        mean_vector, centered_profiles = ensembles[condition_hour]
+        if len(centered_profiles) > 1:
+            weights = np.asarray(
+                [random_generator.gauss(0.0, 1.0) for _ in centered_profiles]
+            )
+            sampled_vector = mean_vector + (
+                weights @ centered_profiles / math.sqrt(len(centered_profiles) - 1)
+            )
+        else:
+            sampled_vector = mean_vector.copy()
+        split = len(height_grid)
+        sampled_wind_u.append(sampled_vector[:split])
+        sampled_wind_v.append(sampled_vector[split:])
+        sample_metadata.append(
+            {
+                "simulation_index": simulation_index,
+                "sampled_time_of_day_hours": sampled_time,
+                "condition_hour": condition_hour,
+                "profiles_in_condition": len(centered_profiles),
+                "calls_per_day": calls_per_day,
+                "days_either_side": days_either_side,
+                "time_of_day_std_hours": time_of_day_std_hours,
+                "source_date_start": dates[0].isoformat(),
+                "source_date_end": dates[-1].isoformat(),
+                "baseline_date": baseline_datetime.date().isoformat(),
+                "baseline_time": f"{baseline_datetime.hour:02d}:00",
+            }
+        )
+
+    print(
+        f"Built {number_of_simulations} Gaussian wind profiles from "
+        f"{total_requests} completed {profile_source_label} profiles",
+        flush=True,
+    )
+    wind_plan = {
+        "latitude": latitude,
+        "longitude": longitude,
+        "elevation_m": float(baseline_result.environment.elevation),
+        "timezone": timezone_name,
+        "date_tuple": date_tuple,
+        "max_expected_height_m": max_expected_height_m,
+        "pressure": np.asarray(baseline_result.pressure, dtype=float),
+        "temperature": np.asarray(baseline_result.temperature, dtype=float),
+        "height_m": height_grid,
+        "wind_u_m_s": np.asarray(sampled_wind_u, dtype=float),
+        "wind_v_m_s": np.asarray(sampled_wind_v, dtype=float),
+    }
+    return wind_plan, sample_metadata, baseline_result
 
 
 def _default_forecast_hour(timezone_name: str) -> tuple[str, str]:
@@ -986,6 +1358,39 @@ def main(argv: Sequence[str] | None = None) -> int:
             if configured_date is not None
             else _default_forecast_hour(timezone_name)
         )
+        wind_sampling = environment_config.get("wind_sampling", {})
+        if not isinstance(wind_sampling, Mapping):
+            raise ValueError("environment.wind_sampling must be an object")
+        wind_sampling_enabled = bool(wind_sampling.get("enabled", False))
+        calls_per_day = wind_sampling.get("calls_per_day", 8)
+        _daily_sample_hours(calls_per_day)
+        days_either_side = wind_sampling.get("days_either_side", 2)
+        if (
+            isinstance(days_either_side, bool)
+            or not isinstance(days_either_side, int)
+            or days_either_side < 0
+        ):
+            raise ValueError(
+                "environment.wind_sampling.days_either_side must be a non-negative integer"
+            )
+        time_of_day_std_hours = float(
+            wind_sampling.get("time_of_day_std_hours", 24.0 / calls_per_day)
+        )
+        if not math.isfinite(time_of_day_std_hours) or time_of_day_std_hours < 0:
+            raise ValueError(
+                "environment.wind_sampling.time_of_day_std_hours must be non-negative"
+            )
+        weather_call_count = calls_per_day * (2 * days_either_side + 1)
+        configured_cache_file = wind_sampling.get("cache_file")
+        configured_cache_path = (
+            _resolve_config_path(
+                configured_cache_file,
+                base_directory,
+                "environment.wind_sampling.cache_file",
+            )
+            if configured_cache_file is not None
+            else None
+        )
 
         if args.validate_only:
             mode = "multistage" if _multistage_pair(tuple(rockets)) else "independent"
@@ -995,7 +1400,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                 f"Mode: {mode}; simulations: {number_of_simulations}; "
                 f"workers: {min(workers, number_of_simulations)}; "
                 f"native threads/worker: {native_threads_per_worker}; "
-                f"output: {output_path}"
+                f"output: {output_path}\n"
+                f"Wind sampling: {'enabled' if wind_sampling_enabled else 'disabled'}; "
+                f"profiles required: {weather_call_count if wind_sampling_enabled else 1}; "
+                f"source: {configured_cache_path if configured_cache_path else 'Open-Meteo'}"
             )
             return 0
 
@@ -1003,28 +1411,88 @@ def main(argv: Sequence[str] | None = None) -> int:
             str(forecast_date),
             str(forecast_time),
         )
-        openmeteo_result = create_openmeteo_environment(
-            latitude=float(environment_config.get("latitude", BLACK_ROCK_LATITUDE)),
-            longitude=float(environment_config.get("longitude", BLACK_ROCK_LONGITUDE)),
-            date=forecast_date,
-            time=forecast_time,
-            timezone_name=timezone_name,
-            elevation_m=float(
-                environment_config.get("elevation_m", BLACK_ROCK_ELEVATION_M)
-            ),
-            model=environment_config.get("model", "gfs_seamless"),
-            endpoint=str(environment_config.get("endpoint", "forecast")),
-            max_expected_height_m=float(
-                environment_config.get("max_expected_height_m", 80_000.0)
-            ),
-            extend_above_model_top=bool(
-                environment_config.get("extend_above_model_top", True)
-            ),
+        latitude = float(environment_config.get("latitude", BLACK_ROCK_LATITUDE))
+        longitude = float(environment_config.get("longitude", BLACK_ROCK_LONGITUDE))
+        elevation_m = float(
+            environment_config.get("elevation_m", BLACK_ROCK_ELEVATION_M)
         )
+        model = environment_config.get("model", "gfs_seamless")
+        endpoint = str(environment_config.get("endpoint", "forecast"))
+        max_expected_height_m = float(
+            environment_config.get("max_expected_height_m", 80_000.0)
+        )
+        extend_above_model_top = bool(
+            environment_config.get("extend_above_model_top", True)
+        )
+        wind_profile_plan = None
+        weather_sample_metadata = None
+        if wind_sampling_enabled:
+            profile_provider = create_openmeteo_environment
+            profile_source_label = "Open-Meteo"
+            cache_file = wind_sampling.get("cache_file")
+            if cache_file is not None:
+                cache_path = _resolve_config_path(
+                    cache_file,
+                    base_directory,
+                    "environment.wind_sampling.cache_file",
+                )
+                if not cache_path.is_file():
+                    raise ValueError(
+                        f"weather cache does not exist: {cache_path}. Run "
+                        f"'python openmeteo_wind_cache.py {config_path}' first."
+                    )
+                from openmeteo_wind_cache import load_cached_environment_provider
+
+                profile_provider = load_cached_environment_provider(cache_path)
+                profile_source_label = f"weather cache {cache_path.name}"
+                print(f"Loading wind profiles from {cache_path}", flush=True)
+            (
+                wind_profile_plan,
+                weather_sample_metadata,
+                openmeteo_result,
+            ) = _build_openmeteo_wind_ensemble(
+                create_environment=profile_provider,
+                latitude=latitude,
+                longitude=longitude,
+                launch_date=forecast_date,
+                launch_time=forecast_time,
+                timezone_name=timezone_name,
+                elevation_m=elevation_m,
+                model=model,
+                endpoint=endpoint,
+                max_expected_height_m=max_expected_height_m,
+                extend_above_model_top=extend_above_model_top,
+                calls_per_day=calls_per_day,
+                days_either_side=days_either_side,
+                time_of_day_std_hours=time_of_day_std_hours,
+                number_of_simulations=number_of_simulations,
+                random_seed=random_seed,
+                profile_source_label=profile_source_label,
+            )
+        else:
+            print("Open-Meteo call 1/1", flush=True)
+            openmeteo_result = create_openmeteo_environment(
+                latitude=latitude,
+                longitude=longitude,
+                date=forecast_date,
+                time=forecast_time,
+                timezone_name=timezone_name,
+                elevation_m=elevation_m,
+                model=model,
+                endpoint=endpoint,
+                max_expected_height_m=max_expected_height_m,
+                extend_above_model_top=extend_above_model_top,
+            )
+            print("Completed Open-Meteo call 1/1", flush=True)
         start_time = time.perf_counter()
+        simulation_environment = (
+            _environment_from_wind_plan(wind_profile_plan, 0)
+            if wind_profile_plan is not None
+            else openmeteo_result.environment
+        )
         payload = run_monte_carlo(
             rockets,
-            openmeteo_result.environment,
+            simulation_environment,
             launch_angle=SIMULATION_PARAMETER_DEFAULTS["launch_angle"],
             launch_angle_std_dev=0.0,
             heading=SIMULATION_PARAMETER_DEFAULTS["heading"],
@@ -1035,6 +1503,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             parameter_variations=parameters,
             workers=workers,
             native_threads_per_worker=native_threads_per_worker,
+            environment_profile_variations=wind_profile_plan,
+            environment_sample_metadata=weather_sample_metadata,
         )
     except (OSError, RocketConfigurationError, RuntimeError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)

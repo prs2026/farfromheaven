@@ -17,6 +17,8 @@ class FullStackSimulationResult:
     flights: tuple[Flight, ...]
     staging_tilt: float | None
     ignition_time: float
+    sustainer_ignited: bool
+    tilt_lockout_triggered: bool
 
 
 def run_single_simulation(
@@ -26,6 +28,9 @@ def run_single_simulation(
     rail_length: float = 5.2,
     inclination: float = 90.0,
     heading: float = 0.0,
+    max_time_step: float = math.inf,
+    rtol: float = 1e-4,
+    atol: float = 1e-6,
 ) -> Flight:
     """Run one simulation and return its RocketPy ``Flight`` object."""
     return Flight(
@@ -34,6 +39,9 @@ def run_single_simulation(
         rail_length=rail_length,
         inclination=inclination,
         heading=heading,
+        max_time_step=max_time_step,
+        rtol=rtol,
+        atol=atol,
     )
 
 
@@ -48,6 +56,9 @@ def runfullstacksim(
     rod_angle: float = 0.0,
     heading: float = 0.0,
     max_time_step: float = math.inf,
+    rtol: float = 1e-4,
+    atol: float = 1e-6,
+    sustainer_ignition_max_tilt_deg: float | None = None,
     return_details: bool = False,
 ) -> list[list[float]] | FullStackSimulationResult:
     """Run the boost and sustainer phases and return the original solution format.
@@ -55,7 +66,10 @@ def runfullstacksim(
     The booster separates at burnout. The sustainer then coasts without a
     motor for ``coast_period`` seconds before ignition. ``rod_angle`` is
     measured away from vertical. Returned times are absolute seconds since
-    launch, matching the original ``runfullstacksim`` function.
+    launch, matching the original ``runfullstacksim`` function. When
+    ``sustainer_ignition_max_tilt_deg`` is set and the ignition tilt exceeds
+    it, the sustainer remains unpowered and continues through recovery.
+    ``rtol`` and ``atol`` control the RocketPy integrator accuracy.
     """
     time_limit = float(time_limit)
     coast_period = float(coast_period)
@@ -63,6 +77,10 @@ def runfullstacksim(
     rod_angle = float(rod_angle)
     heading = float(heading)
     max_time_step = float(max_time_step)
+    rtol = float(rtol)
+    atol = float(atol)
+    if sustainer_ignition_max_tilt_deg is not None:
+        sustainer_ignition_max_tilt_deg = float(sustainer_ignition_max_tilt_deg)
     if not all(math.isfinite(value) for value in (time_limit, coast_period, rail_length, rod_angle, heading)):
         raise ValueError("time_limit, coast_period, rail_length, rod_angle, and heading must be finite")
     if coast_period < 0:
@@ -75,6 +93,13 @@ def runfullstacksim(
         raise ValueError("heading must be in the range [0, 360) degrees")
     if math.isnan(max_time_step) or max_time_step <= 0:
         raise ValueError("max_time_step must be positive")
+    if not math.isfinite(rtol) or rtol <= 0 or not math.isfinite(atol) or atol <= 0:
+        raise ValueError("rtol and atol must be positive finite numbers")
+    if sustainer_ignition_max_tilt_deg is not None and not (
+        math.isfinite(sustainer_ignition_max_tilt_deg)
+        and 0 <= sustainer_ignition_max_tilt_deg <= 90
+    ):
+        raise ValueError("sustainer_ignition_max_tilt_deg must be in [0, 90]")
 
     BoosterMotor = full_stack.motor
     booster_burnout_time = float(BoosterMotor.burn_out_time)
@@ -97,8 +122,8 @@ def runfullstacksim(
         heading=heading,
         max_time=booster_burnout_time,
         max_time_step=max_time_step,
-        rtol=1e-4,
-        atol=1e-6,
+        rtol=rtol,
+        atol=atol,
         time_overshoot=True,
         name=f"{getattr(full_stack, 'name', 'Full Stack')} boost",
     )
@@ -111,16 +136,23 @@ def runfullstacksim(
     ):
         print("Staging aborted: full stack impacted before booster burnout")
         result = FullStackSimulationResult(
-            StackFlight2.solution, (StackFlight2,), None, ignitiontime
+            StackFlight2.solution,
+            (StackFlight2,),
+            None,
+            ignitiontime,
+            False,
+            False,
         )
         runfullstacksim.last_flights = result.flights
         runfullstacksim.staging_tilt = result.staging_tilt
         runfullstacksim.ignition_time = result.ignition_time
+        runfullstacksim.sustainer_ignited = result.sustainer_ignited
+        runfullstacksim.tilt_lockout_triggered = result.tilt_lockout_triggered
         return result if return_details else result.solution
     sustainer_motor = sustainer.motor
     coast_motor = GenericMotor(
         thrust_source=0,
-        burn_time=max(ignitiontime, 1.0),
+        burn_time=max(time_limit, 1.0),
         chamber_radius=float(sustainer_motor.grain_outer_radius),
         chamber_height=float(sustainer_motor.propellant_length),
         chamber_position=float(sustainer_motor.grains_center_of_mass_position),
@@ -160,8 +192,8 @@ def runfullstacksim(
             heading=heading,
             max_time=ignitiontime,
             max_time_step=max_time_step,
-            rtol=1e-4,
-            atol=1e-6,
+            rtol=rtol,
+            atol=atol,
             time_overshoot=True,
             name=f"{getattr(sustainer, 'name', 'Sustainer')} coast",
         )
@@ -177,10 +209,14 @@ def runfullstacksim(
                 (StackFlight2, SustainerNOMOTORFlight2),
                 None,
                 ignitiontime,
+                False,
+                False,
             )
             runfullstacksim.last_flights = result.flights
             runfullstacksim.staging_tilt = result.staging_tilt
             runfullstacksim.ignition_time = result.ignition_time
+            runfullstacksim.sustainer_ignited = result.sustainer_ignited
+            runfullstacksim.tilt_lockout_triggered = result.tilt_lockout_triggered
             return result if return_details else result.solution
         ignition_state = SustainerNOMOTORFlight2.solution[-1][:]
         comparison_flights = (StackFlight2, SustainerNOMOTORFlight2)
@@ -199,6 +235,46 @@ def runfullstacksim(
     )
     print(f"Sustainer ignition tilt: {stagingtilt:.2f} degrees from vertical")
 
+    if (
+        sustainer_ignition_max_tilt_deg is not None
+        and stagingtilt > sustainer_ignition_max_tilt_deg
+    ):
+        print(
+            f"Sustainer ignition locked out: {stagingtilt:.2f} deg exceeds "
+            f"{sustainer_ignition_max_tilt_deg:.2f} deg",
+            flush=True,
+        )
+        lockout_sustainer = deepcopy(SustainerNOMOTOR)
+        lockout_sustainer.parachutes = deepcopy(sustainer.parachutes)
+        lockout_flight = Flight(
+            rocket=lockout_sustainer,
+            environment=environment,
+            initial_solution=comparison_flights[-1],
+            rail_length=0.01,
+            inclination=comparison_flights[-1].attitude_angle(ignitiontime),
+            heading=heading,
+            max_time=time_limit,
+            max_time_step=max_time_step,
+            rtol=rtol,
+            atol=atol,
+            time_overshoot=True,
+            name=f"{getattr(sustainer, 'name', 'Sustainer')} tilt lockout",
+        )
+        result = FullStackSimulationResult(
+            lockout_flight.solution,
+            (*comparison_flights, lockout_flight),
+            stagingtilt,
+            ignitiontime,
+            False,
+            True,
+        )
+        runfullstacksim.last_flights = result.flights
+        runfullstacksim.staging_tilt = result.staging_tilt
+        runfullstacksim.ignition_time = result.ignition_time
+        runfullstacksim.sustainer_ignited = result.sustainer_ignited
+        runfullstacksim.tilt_lockout_triggered = result.tilt_lockout_triggered
+        return result if return_details else result.solution
+
     sustainerstartcondition = ignition_state
     sustainerstartcondition[0] = 0
 
@@ -211,8 +287,8 @@ def runfullstacksim(
         heading=heading,
         max_time=time_limit - ignitiontime,
         max_time_step=max_time_step,
-        rtol=1e-4,
-        atol=1e-6,
+        rtol=rtol,
+        atol=atol,
         time_overshoot=True,
         name=f"{getattr(sustainer, 'name', 'Sustainer')} powered",
     )
@@ -239,10 +315,14 @@ def runfullstacksim(
         (*comparison_flights, SustainerFlight2),
         stagingtilt,
         ignitiontime,
+        True,
+        False,
     )
     runfullstacksim.last_flights = result.flights
     runfullstacksim.staging_tilt = result.staging_tilt
     runfullstacksim.ignition_time = result.ignition_time
+    runfullstacksim.sustainer_ignited = result.sustainer_ignited
+    runfullstacksim.tilt_lockout_triggered = result.tilt_lockout_triggered
     return result if return_details else result.solution
 
 
@@ -250,6 +330,8 @@ run_full_stack_simulation = runfullstacksim
 runfullstacksim.last_flights = ()
 runfullstacksim.staging_tilt = None
 runfullstacksim.ignition_time = None
+runfullstacksim.sustainer_ignited = False
+runfullstacksim.tilt_lockout_triggered = False
 
 __all__ = [
     "FullStackSimulationResult",
