@@ -142,7 +142,7 @@
       <SustainerCG>40</SustainerCG>
       <SustainerIgnitionDelay>10</SustainerIgnitionDelay>
       <Booster1Engine>O8220  (O8220)</Booster1Engine>
-      <Booster1LaunchWt>83</Booster1LaunchWt>
+      <Booster1LaunchWt>75</Booster1LaunchWt>
       <Booster1SeparationDelay>0</Booster1SeparationDelay>
       <Booster1IgnitionDelay>0</Booster1IgnitionDelay>
       <Booster1CG>75.6</Booster1CG>
@@ -154,9 +154,9 @@
       <Booster2NozzleDiameter>0</Booster2NozzleDiameter>
       <IncludeBooster2>False</IncludeBooster2>
       <FlightTime>0</FlightTime>
-      <TimetoApogee>164.4108</TimetoApogee>
-      <MaxAltitude>389756.1</MaxAltitude>
-      <MaxVelocity>6114.036</MaxVelocity>
+      <TimetoApogee>177.2538</TimetoApogee>
+      <MaxAltitude>455459.2</MaxAltitude>
+      <MaxVelocity>6334.312</MaxVelocity>
       <OptimumWt>0</OptimumWt>
       <OptimumMaxAlt>0</OptimumMaxAlt>
     </Simulation>
