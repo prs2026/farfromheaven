@@ -1,7 +1,7 @@
 {
   "format": "projectblaze.rocketpy.monte_carlo_config",
   "format_version": 1,
-  "rocket_json": ".\\builtjsons\\ama4.25-3.json",
+  "rocket_json": ".\\builtjsons\\ama4.25class3.json",
   "rockets": [
     "full_stack",
     "sustainer"
@@ -62,7 +62,7 @@
         "mean": 100.0,
         "std": 5.0
       },
-      "max_time": 600.0,
+      "max_time": 1000.0,
       "max_time_step": 0.5,
       "rtol": 0.005,
       "atol": 0.00005,
