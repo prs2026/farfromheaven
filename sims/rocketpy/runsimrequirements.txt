@@ -1,0 +1,6 @@
+# Minimal direct dependencies for montecarlorunner.py.
+# RocketPy installs its own numerical, weather, and export dependencies.
+rocketpy==1.13.0
+numpy==2.5.2
+dill==0.4.1
+tzdata==2026.3

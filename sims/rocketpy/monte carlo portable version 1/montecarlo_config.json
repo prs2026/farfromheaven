@@ -1,0 +1,76 @@
+{
+  "format": "projectblaze.rocketpy.monte_carlo_config",
+  "format_version": 1,
+  "rocket_json": ".\\builtjsons\\AMA CONFIG 14.json",
+  "rockets": [
+    "full_stack",
+    "sustainer"
+  ],
+  "allow_incomplete_rocket": false,
+  "environment": {
+    "latitude": 40.870683,
+    "longitude": -119.10695,
+    "elevation_m": 1191.0,
+    "date": "2026-09-06",
+    "time": "12:00",
+    "timezone": "America/Los_Angeles",
+    "model": "gfs_seamless",
+    "endpoint": "forecast",
+    "max_expected_height_m": 180000.0,
+    "extend_above_model_top": true,
+    "wind_sampling": {
+      "enabled": true,
+      "cache_file": "openmeteo_wind_cache.json",
+      "calls_per_day": 8,
+      "days_either_side": 2,
+      "time_of_day_std_hours": 4
+    }
+  },
+  "simulation": {
+    "number_of_simulations": 600,
+    "workers": 10,
+    "native_threads_per_worker": 1,
+    "output_path": "monte_carlo_flights.pkl",
+    "random_seed": 42,
+    "parameters": {
+      "launch_angle": {
+        "distribution": "normal",
+        "mean": 90.0,
+        "std": 1,
+        "min": 0.01,
+        "max": 90.0
+      },
+      "heading": {
+        "distribution": "normal",
+        "mean": 30,
+        "std": 180
+      },
+      "rail_length": 6.0,
+      "coast_period": {
+        "distribution": "normal",
+        "mean": 10.0,
+        "std": 2.0
+      },
+      "sustainer_booster_impulse_ratio_percent": {
+        "distribution": "normal",
+        "mean": 100.0,
+        "std": 2.0
+      },
+      "booster_wet_mass_percent": {
+        "distribution": "normal",
+        "mean": 100.0,
+        "std": 5.0
+      },
+      "sustainer_wet_mass_percent": {
+        "distribution": "normal",
+        "mean": 100.0,
+        "std": 5.0
+      },
+      "max_time": 1000.0,
+      "max_time_step": 0.5,
+      "rtol": 0.005,
+      "atol": 0.00005,
+      "sustainer_ignition_max_tilt_deg": 10.0
+    }
+  }
+}
