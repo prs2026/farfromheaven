@@ -1,7 +1,7 @@
 {
   "format": "projectblaze.rocketpy.monte_carlo_config",
   "format_version": 1,
-  "rocket_json": ".\\builtjsons\\amaconfig14.json",
+  "rocket_json": ".\\builtjsons\\AMA CONFIG 14.json",
   "rockets": [
     "full_stack",
     "sustainer"
@@ -27,7 +27,7 @@
     }
   },
   "simulation": {
-    "number_of_simulations": 100,
+    "number_of_simulations": 10,
     "workers": 10,
     "native_threads_per_worker": 1,
     "output_path": "monte_carlo_flights.pkl",

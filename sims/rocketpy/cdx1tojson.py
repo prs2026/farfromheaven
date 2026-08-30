@@ -3,21 +3,25 @@
 RASAero stores dimensions in inches, launch mass in pounds, altitude in feet,
 pressure in inches of mercury, wind speed in miles per hour, and launch-site
 temperature in degrees Fahrenheit. The generated file uses SI units and
-contains the fields needed to construct a RocketPy ``Rocket``. CDX1 files
-do not contain thrust or drag curves, so those paths remain optional inputs.
+contains the fields needed to construct a RocketPy ``Rocket``. CDX1 files name
+their motors but do not contain thrust or drag curves. A multi-motor RASP
+library can be supplied to embed the matching motor curves.
 Dry mass moments of inertia are approximated as a uniform cylinder.
-When a booster is present, the output contains selectable ``full_stack``,
-``sustainer``, and ``booster`` rocket configurations in the same file.
+When a booster is present, the output contains selectable ``full_stack`` and
+``sustainer`` configurations. A standalone ``booster`` is included only when
+its own aerodynamic curve is supplied.
 
 Usage:
 	python cdx1tojson.py input.CDX1 output.json --full-stack-aero full.csv --sustainer-aero sustainer.csv --booster-thrust booster.eng --sustainer-thrust sustainer.eng
-	python cdx1tojson.py input.CDX1
+	python cdx1tojson.py input.CDX1 output.json --full-stack-aero full.csv --sustainer-aero sustainer.csv --thrust-curve-library thrustcurves.eng
+	python cdx1tojson.py input.CDX1 --aero-curves rocket.csv
 """
 
 from __future__ import annotations
 
 import argparse
 import copy
+import csv
 import json
 import math
 import os
@@ -30,9 +34,6 @@ from typing import Any
 INCH_TO_M = 0.0254
 FOOT_TO_M = 0.3048
 POUND_TO_KG = 0.45359237
-INHG_TO_PA = 3386.389
-MPH_TO_MPS = 0.44704
-FAHRENHEIT_TO_KELVIN_OFFSET = 459.67
 POUND_PER_CUBIC_INCH_TO_KG_PER_CUBIC_METER = POUND_TO_KG / INCH_TO_M**3
 DEFAULT_PROPELLANT_DENSITY = 0.065 * POUND_PER_CUBIC_INCH_TO_KG_PER_CUBIC_METER
 
@@ -68,10 +69,7 @@ def _fin(fin: ET.Element) -> dict[str, Any]:
 		"span": _float(fin, "Span", INCH_TO_M),
 		"sweep_distance": _float(fin, "SweepDistance", INCH_TO_M),
 		"tip_chord": _float(fin, "TipChord", INCH_TO_M),
-		"thickness": _float(fin, "Thickness", INCH_TO_M),
-		"leading_edge_radius": _float(fin, "LERadius", INCH_TO_M),
 		"location": _float(fin, "Location", INCH_TO_M),
-		"airfoil_section": _text(fin, "AirfoilSection"),
 	}
 
 
@@ -85,7 +83,6 @@ def _stage(element: ET.Element) -> dict[str, Any]:
 		"shoulder_length": _float(element, "ShoulderLength", INCH_TO_M),
 		"boattail_length": _float(element, "BoattailLength", INCH_TO_M),
 		"boattail_rear_diameter": _float(element, "BoattailRearDiameter", INCH_TO_M),
-		"color": _text(element, "Color"),
 		"fins": [_fin(fin) for fin in element.findall("Fin")],
 	}
 	if element.tag == "NoseCone":
@@ -106,33 +103,123 @@ def _cylinder_inertia(mass: float, stages: list[dict[str, Any]]) -> dict[str, fl
 	return {"I11": transverse, "I22": transverse, "I33": axial, "I12": 0.0, "I13": 0.0, "I23": 0.0}
 
 
+def _rasp_motor_library(
+	thrust_curve_file: str | Path, base_dir: str | Path = "."
+) -> dict[str, dict[str, Any]]:
+	"""Parse all motor blocks from a multi-motor RASP file."""
+	path = Path(thrust_curve_file)
+	if not path.is_absolute():
+		path = Path(base_dir) / path
+	motors: dict[str, dict[str, Any]] = {}
+	current: dict[str, Any] | None = None
+	try:
+		with path.open(encoding="utf-8-sig") as stream:
+			for line_number, raw_line in enumerate(stream, start=1):
+				line = raw_line.strip()
+				if not line or line.startswith(";"):
+					continue
+				fields = line.split()
+				try:
+					time_s, thrust_n = float(fields[0]), float(fields[1])
+				except (IndexError, ValueError):
+					if len(fields) < 6:
+						raise ValueError(f"line {line_number}: incomplete motor header")
+					designation = fields[0]
+					key = designation.casefold()
+					if key in motors:
+						raise ValueError(f"duplicate motor designation {designation!r}")
+					current = {
+						"format": "rasp",
+						"designation": designation,
+						"diameter_m": float(fields[1]) / 1000,
+						"length_m": float(fields[2]) / 1000,
+						"delays": fields[3],
+						"propellant_mass_kg": float(fields[4]),
+						"loaded_mass_kg": float(fields[5]),
+						"manufacturer": " ".join(fields[6:]),
+						"thrust_vs_time": [],
+						"source_file": path.name,
+					}
+					motors[key] = current
+					continue
+				if current is None:
+					raise ValueError(f"line {line_number}: thrust point precedes the first header")
+				if not math.isfinite(time_s) or not math.isfinite(thrust_n):
+					raise ValueError(f"line {line_number}: non-finite thrust point")
+				current["thrust_vs_time"].append([time_s, thrust_n])
+	except (OSError, ValueError) as exc:
+		raise ValueError(f"Invalid RASP motor library {path}: {exc}") from exc
+	if not motors:
+		raise ValueError(f"RASP motor library {path} contains no motors")
+	for motor in motors.values():
+		physical = (
+			motor["diameter_m"], motor["length_m"],
+			motor["propellant_mass_kg"], motor["loaded_mass_kg"],
+		)
+		if not all(math.isfinite(value) and value > 0 for value in physical):
+			raise ValueError(f"Motor dimensions and masses must be positive for {motor['designation']!r}")
+		if motor["loaded_mass_kg"] < motor["propellant_mass_kg"]:
+			raise ValueError(f"Loaded mass is less than propellant mass for {motor['designation']!r}")
+		points = {float(time): float(thrust) for time, thrust in motor["thrust_vs_time"]}
+		motor["thrust_vs_time"] = [[time, points[time]] for time in sorted(points)]
+		if len(motor["thrust_vs_time"]) < 2:
+			raise ValueError(f"Motor {motor['designation']!r} needs at least two thrust points")
+	return motors
+
+
+def _motor_name_key(value: str) -> str:
+	return "".join(character for character in value.casefold() if character.isalnum())
+
+
+def _motor_from_library(
+	motors: dict[str, dict[str, Any]], engine_name: str
+) -> dict[str, Any]:
+	"""Find the unique library motor matching a CDX1 engine designation."""
+	designation = engine_name.strip().split(maxsplit=1)[0] if engine_name.strip() else ""
+	requested = _motor_name_key(designation)
+	if not requested:
+		raise ValueError("CDX1 engine designation is empty")
+	exact = [motor for motor in motors.values() if _motor_name_key(motor["designation"]) == requested]
+	if len(exact) == 1:
+		selected = exact[0]
+		return copy.deepcopy({
+			key: selected[key] for key in (
+				"designation", "diameter_m", "length_m", "propellant_mass_kg",
+				"loaded_mass_kg", "thrust_vs_time",
+			)
+		})
+	partial = [motor for motor in motors.values() if _motor_name_key(motor["designation"]).endswith(requested)]
+	if len(partial) == 1:
+		selected = partial[0]
+		return copy.deepcopy({
+			key: selected[key] for key in (
+				"designation", "diameter_m", "length_m", "propellant_mass_kg",
+				"loaded_mass_kg", "thrust_vs_time",
+			)
+		})
+	available = ", ".join(sorted(motor["designation"] for motor in motors.values()))
+	if partial:
+		raise ValueError(f"CDX1 engine {engine_name!r} has multiple library matches: {available}")
+	raise ValueError(f"CDX1 engine {engine_name!r} was not found; available motors: {available}")
+
+
 def _motor_header(
 	thrust_curve: str | Path, base_dir: str | Path = "."
 ) -> tuple[float, float, float, float]:
-	"""Return diameter, length, propellant mass, and loaded mass from RASP."""
-	path = Path(thrust_curve)
-	if not path.is_absolute():
-		path = Path(base_dir) / path
-	try:
-		with path.open(encoding="utf-8-sig") as stream:
-			for line in stream:
-				line = line.strip()
-				if line and not line.startswith(";"):
-					fields = line.split()
-					break
-			else:
-				raise ValueError("file has no RASP motor header")
-		if len(fields) < 6:
-			raise ValueError("header needs designation, diameter, length, delays, propellant mass, and total mass")
-		diameter = float(fields[1]) / 1000
-		length = float(fields[2]) / 1000
-		propellant_mass = float(fields[4])
-		loaded_mass = float(fields[5])
-	except (OSError, ValueError) as exc:
-		raise ValueError(f"Invalid RASP motor header in {path}: {exc}") from exc
-	if not all(math.isfinite(value) and value > 0 for value in (diameter, length, propellant_mass, loaded_mass)):
-		raise ValueError(f"Motor dimensions and masses must be positive in {path}")
-	return diameter, length, propellant_mass, loaded_mass
+	"""Return the first motor's diameter, length, propellant mass, and loaded mass."""
+	motor = next(iter(_rasp_motor_library(thrust_curve, base_dir).values()))
+	return (
+		motor["diameter_m"], motor["length_m"],
+		motor["propellant_mass_kg"], motor["loaded_mass_kg"],
+	)
+
+
+def _motor_data_from_file(
+	thrust_curve: str | Path, base_dir: str | Path = "."
+) -> dict[str, Any]:
+	motors = _rasp_motor_library(thrust_curve, base_dir)
+	first = next(iter(motors.values()))
+	return _motor_from_library(motors, first["designation"])
 
 
 def _motor_geometry(
@@ -141,16 +228,75 @@ def _motor_geometry(
 	"""Read motor diameter and length from a RASP header for grain modeling."""
 	if thrust_curve is None:
 		return None
-	diameter, length, _, _ = _motor_header(thrust_curve, base_dir)
+	diameter, _, _, _ = _motor_header(thrust_curve, base_dir)
 	return {
-		"type": "solid",
 		"grain_outer_radius": diameter / 2,
 		"grain_density": DEFAULT_PROPELLANT_DENSITY,
 		"grain_number": 1,
 		"grain_separation": 0.0,
 		"minimum_dry_mass": 0.01,
-		"propellant_length": length,
-		"geometry_source": "RASP motor diameter and length; density assumed as 0.065 lb/in^3",
+	}
+
+
+def _motor_geometry_from_data(motor: dict[str, Any] | None) -> dict[str, Any] | None:
+	if motor is None:
+		return None
+	return {
+		"grain_outer_radius": motor["diameter_m"] / 2,
+		"grain_density": DEFAULT_PROPELLANT_DENSITY,
+		"grain_number": 1,
+		"grain_separation": 0.0,
+		"minimum_dry_mass": 0.01,
+	}
+
+
+def _aero_curve_data(
+	aero_curve: str | Path | None,
+	base_dir: str | Path = ".",
+	*,
+	alpha: float = 0.0,
+) -> dict[str, list[list[float]]] | None:
+	"""Read the selected Alpha slice from a combined aerodynamic CSV."""
+	if aero_curve is None:
+		return None
+	path = Path(aero_curve)
+	if not path.is_absolute():
+		path = Path(base_dir) / path
+	try:
+		with path.open("r", encoding="utf-8-sig", newline="") as stream:
+			reader = csv.DictReader(stream)
+			if not reader.fieldnames:
+				raise ValueError("file has no header")
+			headers = {
+				"".join(character for character in header.casefold() if character.isalnum()): header
+				for header in reader.fieldnames
+			}
+			required = {"mach": "Mach", "cdpoweroff": "CD Power-Off", "cdpoweron": "CD Power-On"}
+			missing = [label for key, label in required.items() if key not in headers]
+			if missing:
+				raise ValueError("missing header(s): " + ", ".join(missing))
+			alpha_header = headers.get("alpha")
+			points: dict[float, tuple[float, float]] = {}
+			for line_number, row in enumerate(reader, start=2):
+				row_alpha = float(row[alpha_header]) if alpha_header else alpha
+				if not math.isclose(row_alpha, alpha, rel_tol=0, abs_tol=1e-9):
+					continue
+				mach = float(row[headers["mach"]])
+				power_off = float(row[headers["cdpoweroff"]])
+				power_on = float(row[headers["cdpoweron"]])
+				if not all(math.isfinite(value) and value >= 0 for value in (mach, power_off, power_on)):
+					raise ValueError(f"line {line_number} contains negative or non-finite data")
+				if mach in points and points[mach] != (power_off, power_on):
+					raise ValueError(f"conflicting duplicate Mach {mach:g}")
+				points[mach] = (power_off, power_on)
+	except (OSError, TypeError, ValueError) as exc:
+		raise ValueError(f"Invalid aerodynamic CSV {path}: {exc}") from exc
+	if len(points) < 2:
+		raise ValueError(f"Aerodynamic CSV {path} needs at least two Mach rows at Alpha={alpha:g}")
+	ordered = sorted(points.items())
+	return {
+		"power_off": [[mach, coefficients[0]] for mach, coefficients in ordered],
+		"power_on": [[mach, coefficients[1]] for mach, coefficients in ordered],
 	}
 
 
@@ -169,6 +315,8 @@ def _recovery_events(recovery: ET.Element) -> list[dict[str, Any]]:
 	"""Return both RASAero recovery events with SI parachute dimensions."""
 	events = []
 	for index in (1, 2):
+		if not _boolean(_text(recovery, f"Event{index}")):
+			continue
 		event_type = _text(recovery, f"EventType{index}", "None")
 		if event_type.strip().lower() == "apogee":
 			trigger: str | float | None = "apogee"
@@ -176,14 +324,10 @@ def _recovery_events(recovery: ET.Element) -> list[dict[str, Any]]:
 			trigger = _float(recovery, f"Altitude{index}", FOOT_TO_M)
 		else:
 			trigger = None
-		events.append(
+			events.append(
 			{
 				"name": f"recovery_{index}",
-				"enabled": _boolean(_text(recovery, f"Event{index}")),
-				"device_type": _text(recovery, f"DeviceType{index}", "None"),
-				"event_type": event_type,
 				"trigger": trigger,
-				"deployment_altitude": _float(recovery, f"Altitude{index}", FOOT_TO_M),
 				"diameter": _float(recovery, f"Size{index}", INCH_TO_M),
 				"cd": _float(recovery, f"CD{index}"),
 				"sampling_rate": 100,
@@ -201,39 +345,37 @@ def _rocket_definition(
 	mass: float,
 	dry_mass: float,
 	center_of_mass: float,
-	engine_name: str,
 	aero_curves: str | Path | None,
 	thrust_curve: str | Path | None,
-	mass_source: str,
+	thrust_curve_data: dict[str, Any] | None,
 	parachutes: list[dict[str, Any]],
 	asset_base_dir: str | Path = ".",
 ) -> dict[str, Any]:
 	if not stages:
 		raise ValueError(f"Cannot create rocket configuration {name!r} without stages")
 	radius = max(stage["diameter"] for stage in stages) / 2
+	aero_curve_data = _aero_curve_data(aero_curves, asset_base_dir)
+	motor_geometry = (
+		_motor_geometry(thrust_curve, asset_base_dir)
+		if thrust_curve else _motor_geometry_from_data(thrust_curve_data)
+	)
 	definition = {
 		"name": name,
 		"radius": radius,
-		"mass_source": mass_source,
 		"inertia": _cylinder_inertia(dry_mass, stages),
-		"aero_curves": str(Path(aero_curves)) if aero_curves else None,
-		"aero_curve_alpha": 0.0,
-		"aero_plot_max_mach": 8.0,
-		"thrust_curve": str(Path(thrust_curve)) if thrust_curve else None,
-		"motor": _motor_geometry(thrust_curve, asset_base_dir),
 		"center_of_mass_without_motor": center_of_mass,
 		"coordinate_system_orientation": "tail_to_nose",
-		"engine_name": engine_name,
-		"rail_buttons": {
-			"upper_position": None,
-			"lower_position": None,
-			"position_reference": "nose_tip",
-			"angular_position": 45.0,
-			"radius": radius,
-		},
 		"parachutes": copy.deepcopy(parachutes),
 	}
-	definition["launch_mass" if thrust_curve else "mass"] = mass
+	if aero_curve_data:
+		definition["aero_curve_data"] = aero_curve_data
+	if motor_geometry:
+		definition["motor"] = motor_geometry
+	if thrust_curve:
+		definition["thrust_curve"] = str(Path(thrust_curve))
+	elif thrust_curve_data:
+		definition["thrust_curve_data"] = copy.deepcopy(thrust_curve_data)
+	definition["launch_mass" if thrust_curve or thrust_curve_data else "mass"] = mass
 	return definition
 
 
@@ -245,7 +387,6 @@ def _simulation(simulation: ET.Element | None) -> dict[str, Any]:
 			"engine": _text(simulation, "SustainerEngine"),
 			"launch_mass": _float(simulation, "SustainerLaunchWt", POUND_TO_KG),
 			"center_of_mass": _float(simulation, "SustainerCG", INCH_TO_M),
-			"ignition_delay": _float(simulation, "SustainerIgnitionDelay"),
 		},
 		"boosters": [
 			{
@@ -253,17 +394,9 @@ def _simulation(simulation: ET.Element | None) -> dict[str, Any]:
 				"included": _boolean(_text(simulation, f"IncludeBooster{i}")),
 				"launch_mass": _float(simulation, f"Booster{i}LaunchWt", POUND_TO_KG),
 				"center_of_mass": _float(simulation, f"Booster{i}CG", INCH_TO_M),
-				"ignition_delay": _float(simulation, f"Booster{i}IgnitionDelay"),
-				"separation_delay": _float(simulation, f"Booster{i}SeparationDelay"),
 			}
 			for i in (1, 2)
 		],
-		"results": {
-			"flight_time": _float(simulation, "FlightTime"),
-			"time_to_apogee": _float(simulation, "TimetoApogee"),
-			"max_altitude": _float(simulation, "MaxAltitude", FOOT_TO_M),
-			"max_velocity": _float(simulation, "MaxVelocity", FOOT_TO_M),
-		},
 	}
 
 
@@ -278,6 +411,7 @@ def convert_cdx1(
 	full_stack_thrust: str | Path | None = None,
 	sustainer_thrust: str | Path | None = None,
 	booster_thrust: str | Path | None = None,
+	thrust_curve_library: str | Path | None = None,
 	asset_base_dir: str | Path = ".",
 ) -> dict[str, Any]:
 	"""Parse *input_path* and return the generated JSON-compatible object."""
@@ -292,14 +426,32 @@ def convert_cdx1(
 		for part in design
 		if part.tag in {"NoseCone", "BodyTube", "FinCan", "Booster"}
 	]
+	contains_booster = any(stage["part_type"].lower() == "booster" for stage in stages)
+	if contains_booster:
+		missing_aero_curves = []
+		if full_stack_aero is None and aero_curves is None:
+			missing_aero_curves.append("--full-stack-aero")
+		if sustainer_aero is None and aero_curves is None:
+			missing_aero_curves.append("--sustainer-aero")
+		if missing_aero_curves:
+			raise ValueError(
+				"Two-stage conversion requires aerodynamic curves for the full stack "
+				"and sustainer; provide " + " and ".join(missing_aero_curves)
+				+ " (or use --aero-curves as a shared fallback)"
+			)
+	elif sustainer_aero is None and aero_curves is None:
+		raise ValueError(
+			"Single-stage conversion requires --aero-curves or --sustainer-aero"
+		)
 	simulation_list = root.find("SimulationList")
 	simulation = simulation_list.find("Simulation") if simulation_list is not None else None
 	sim = _simulation(simulation)
 	sustainer = sim["sustainer"]
+	motor_library = (
+		_rasp_motor_library(thrust_curve_library, asset_base_dir)
+		if thrust_curve_library else None
+	)
 
-	launch_site = root.find("LaunchSite")
-	if launch_site is None:
-		launch_site = ET.Element("LaunchSite")
 	recovery = root.find("Recovery")
 	if recovery is None:
 		recovery = ET.Element("Recovery")
@@ -308,9 +460,15 @@ def convert_cdx1(
 	sustainer_stages = [stage for stage in stages if stage["part_type"].lower() != "booster"]
 	booster_stages = [stage for stage in stages if stage["part_type"].lower() == "booster"]
 	sustainer_motor_curve = sustainer_thrust or thrust_curve
+	sustainer_motor_data = (
+		_motor_data_from_file(sustainer_motor_curve, asset_base_dir)
+		if sustainer_motor_curve else (
+			_motor_from_library(motor_library, sustainer["engine"])
+			if motor_library is not None else None
+		)
+	)
 	sustainer_motor_mass = (
-		_motor_header(sustainer_motor_curve, asset_base_dir)[3]
-		if sustainer_motor_curve else 0.0
+		sustainer_motor_data["loaded_mass_kg"] if sustainer_motor_data else 0.0
 	)
 	sustainer_dry_mass = sustainer["launch_mass"] - sustainer_motor_mass
 	if sustainer_dry_mass <= 0:
@@ -321,10 +479,9 @@ def convert_cdx1(
 		mass=sustainer["launch_mass"],
 		dry_mass=sustainer_dry_mass,
 		center_of_mass=sustainer["center_of_mass"],
-		engine_name=sustainer["engine"],
 		aero_curves=sustainer_aero or aero_curves,
-		thrust_curve=sustainer_motor_curve,
-		mass_source="RASAero SustainerLaunchWt (lb converted to kg)",
+		thrust_curve=None,
+		thrust_curve_data=sustainer_motor_data,
 		parachutes=recovery_events,
 		asset_base_dir=asset_base_dir,
 	)
@@ -332,19 +489,9 @@ def convert_cdx1(
 	result = {
 		"format": "rocketpy-cdx1",
 		"format_version": 1,
-		"units": {"length": "m", "mass": "kg", "time": "s", "temperature": "K", "pressure": "Pa"},
-		"source": {"file": input_path.name, "format": "RASAero II CDX1"},
+		"units": {"length": "m", "mass": "kg", "time": "s"},
 		"rocket": sustainer_rocket,
 		"stages": _rebase_stages(sustainer_stages),
-		"launch_site": {
-			"altitude": _float(launch_site, "Altitude", FOOT_TO_M),
-			"pressure": _float(launch_site, "Pressure", INHG_TO_PA),
-			"temperature": (_float(launch_site, "Temperature") + FAHRENHEIT_TO_KELVIN_OFFSET) * 5 / 9,
-			"wind_speed": _float(launch_site, "WindSpeed", MPH_TO_MPS),
-			"rod_angle": _float(launch_site, "RodAngle"),
-			"rod_length": _float(launch_site, "RodLength", FOOT_TO_M),
-		},
-		"recovery": {"events": copy.deepcopy(recovery_events)},
 	}
 
 	if not booster_stages:
@@ -363,9 +510,15 @@ def convert_cdx1(
 	full_mass = booster_sim["launch_mass"]
 	full_cg = booster_sim["center_of_mass"]
 	full_stack_motor_curve = full_stack_thrust or booster_thrust or thrust_curve
+	full_stack_motor_data = (
+		_motor_data_from_file(full_stack_motor_curve, asset_base_dir)
+		if full_stack_motor_curve else (
+			_motor_from_library(motor_library, booster_sim["engine"])
+			if motor_library is not None else None
+		)
+	)
 	full_stack_motor_mass = (
-		_motor_header(full_stack_motor_curve, asset_base_dir)[3]
-		if full_stack_motor_curve else 0.0
+		full_stack_motor_data["loaded_mass_kg"] if full_stack_motor_data else 0.0
 	)
 	full_stack_dry_mass = full_mass - full_stack_motor_mass
 	booster_mass = full_stack_dry_mass - sustainer["launch_mass"]
@@ -391,26 +544,26 @@ def convert_cdx1(
 		mass=full_mass,
 		dry_mass=full_stack_dry_mass,
 		center_of_mass=full_cg,
-		engine_name=booster_sim["engine"],
 		aero_curves=full_stack_aero or aero_curves,
-		thrust_curve=full_stack_motor_curve,
-		mass_source="RASAero BoosterLaunchWt (lb converted to kg; complete vehicle with booster attached)",
-		parachutes=recovery_events,
-		asset_base_dir=asset_base_dir,
-	)
-	booster_rocket = _rocket_definition(
-		name=f"{input_path.stem} - Booster",
-		stages=booster_stages,
-		mass=booster_mass,
-		dry_mass=booster_mass,
-		center_of_mass=booster_cg_global - booster_origin,
-		engine_name=booster_sim["engine"],
-		aero_curves=booster_aero,
 		thrust_curve=None,
-		mass_source="Full-stack dry mass minus sustainer wet mass",
+		thrust_curve_data=full_stack_motor_data,
 		parachutes=recovery_events,
 		asset_base_dir=asset_base_dir,
 	)
+	booster_rocket = None
+	if booster_aero:
+		booster_rocket = _rocket_definition(
+			name=f"{input_path.stem} - Booster",
+			stages=booster_stages,
+			mass=booster_mass,
+			dry_mass=booster_mass,
+			center_of_mass=booster_cg_global - booster_origin,
+			aero_curves=booster_aero,
+			thrust_curve=None,
+			thrust_curve_data=None,
+			parachutes=recovery_events,
+			asset_base_dir=asset_base_dir,
+		)
 
 	result["format_version"] = 2
 	result["default_rocket"] = "full_stack"
@@ -423,17 +576,17 @@ def convert_cdx1(
 			"rocket": sustainer_rocket,
 			"stages": _rebase_stages(sustainer_stages),
 		},
-		"booster": {
+	}
+	if booster_rocket is not None:
+		result["rockets"]["booster"] = {
 			"rocket": booster_rocket,
 			"stages": _rebase_stages(booster_stages),
-		},
-	}
+		}
 	# Version 2 stores every selectable rocket only once. The interpreter
 	# overlays the requested entry, so top-level rocket/stages copies and the
-	# duplicate recovery event list are unnecessary.
+	# duplicate top-level copies are unnecessary.
 	result.pop("rocket")
 	result.pop("stages")
-	result.pop("recovery")
 	return result
 
 
@@ -471,6 +624,11 @@ def main() -> int:
 		help="combined aerodynamic CSV for the booster alone",
 	)
 	thrust_group = parser.add_argument_group("motor thrust curve inputs")
+	thrust_group.add_argument(
+		"--thrust-curve-library", "--motor-library",
+		dest="thrust_curve_library", type=_existing_file,
+		help="multi-motor RASP file; CDX1 engine names select curves to embed in the JSON",
+	)
 	thrust_group.add_argument(
 		"--thrust-curve",
 		type=_existing_file,
@@ -510,6 +668,7 @@ def main() -> int:
 			full_stack_thrust=output_relative(args.full_stack_thrust),
 			sustainer_thrust=output_relative(args.sustainer_thrust),
 			booster_thrust=output_relative(args.booster_thrust),
+			thrust_curve_library=args.thrust_curve_library.resolve() if args.thrust_curve_library else None,
 			asset_base_dir=output.resolve().parent,
 		)
 		output.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")

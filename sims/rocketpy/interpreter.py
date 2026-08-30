@@ -167,6 +167,37 @@ def _aero_sources_from_csv(
     return power_off_source, power_on_source, path.resolve()
 
 
+def _aero_sources_from_data(
+    value: Any,
+) -> tuple[list[list[float]], list[list[float]]]:
+    """Validate embedded Mach/CD power-off and power-on lookup tables."""
+    if not isinstance(value, Mapping):
+        raise RocketConfigurationError("rocket.aero_curve_data must be a JSON object")
+
+    def validated_table(key: str) -> list[list[float]]:
+        raw_table = _require(value, key, "rocket.aero_curve_data")
+        if not isinstance(raw_table, Sequence) or isinstance(raw_table, (str, bytes)):
+            raise RocketConfigurationError(f"rocket.aero_curve_data.{key} must be an array")
+        points: dict[float, float] = {}
+        for index, point in enumerate(raw_table):
+            if not isinstance(point, Sequence) or isinstance(point, (str, bytes)) or len(point) != 2:
+                raise RocketConfigurationError(
+                    f"rocket.aero_curve_data.{key}[{index}] must be [Mach, CD]"
+                )
+            mach = _finite_number(point[0], f"rocket.aero_curve_data.{key}[{index}].Mach")
+            coefficient = _finite_number(point[1], f"rocket.aero_curve_data.{key}[{index}].CD")
+            if mach < 0 or coefficient < 0:
+                raise RocketConfigurationError("Embedded Mach and drag coefficients must be non-negative")
+            if mach in points and points[mach] != coefficient:
+                raise RocketConfigurationError(f"Conflicting embedded drag values at Mach {mach:g}")
+            points[mach] = coefficient
+        if len(points) < 2:
+            raise RocketConfigurationError(f"rocket.aero_curve_data.{key} needs at least two points")
+        return [[mach, points[mach]] for mach in sorted(points)]
+
+    return validated_table("power_off"), validated_table("power_on")
+
+
 def _total_length(stages: Sequence[Mapping[str, Any]]) -> float:
     ends = []
     for index, stage in enumerate(stages):
@@ -231,30 +262,43 @@ def _motor_from_eng(
     value: Any,
     base_dir: Path,
     geometry: Mapping[str, Any] | None = None,
-) -> tuple[SolidMotor, float, Path]:
-    """Build a grain-resolved SolidMotor using dimensions from a RASP header."""
-    source = _source(value, base_dir, "rocket.thrust_curve")
-    if not isinstance(source, str) or Path(source).suffix.lower() != ".eng":
-        raise RocketConfigurationError(
-            "rocket.thrust_curve must point to a RASP .eng file so motor mass can be read"
-        )
-    path = Path(source)
-    try:
-        _, raw_description, thrust_points = Motor.import_eng(str(path))
-        description = [item for item in raw_description if item]
-        if len(description) < 6:
-            raise ValueError("header needs designation, diameter, length, delays, propellant mass, and total mass")
-        diameter = float(description[1]) / 1000
-        length = float(description[2]) / 1000
-        propellant_mass = float(description[4])
-        loaded_mass = float(description[5])
-    except (OSError, TypeError, ValueError) as exc:
-        raise RocketConfigurationError(f"Invalid RASP motor header in {path}: {exc}") from exc
+) -> tuple[SolidMotor, float, Path | None]:
+    """Build a grain-resolved SolidMotor from a file or embedded RASP data."""
+    path: Path | None = None
+    if isinstance(value, Mapping):
+        source_label = str(value.get("source_file") or value.get("designation") or "embedded motor")
+        try:
+            diameter = float(_require(value, "diameter_m", "rocket.thrust_curve_data"))
+            length = float(_require(value, "length_m", "rocket.thrust_curve_data"))
+            propellant_mass = float(_require(value, "propellant_mass_kg", "rocket.thrust_curve_data"))
+            loaded_mass = float(_require(value, "loaded_mass_kg", "rocket.thrust_curve_data"))
+            thrust_points = _require(value, "thrust_vs_time", "rocket.thrust_curve_data")
+        except (TypeError, ValueError) as exc:
+            raise RocketConfigurationError(f"Invalid embedded RASP motor {source_label}: {exc}") from exc
+    else:
+        source = _source(value, base_dir, "rocket.thrust_curve")
+        if not isinstance(source, str) or Path(source).suffix.lower() != ".eng":
+            raise RocketConfigurationError(
+                "rocket.thrust_curve must point to a RASP .eng file so motor mass can be read"
+            )
+        path = Path(source)
+        source_label = str(path)
+        try:
+            _, raw_description, thrust_points = Motor.import_eng(str(path))
+            description = [item for item in raw_description if item]
+            if len(description) < 6:
+                raise ValueError("header needs designation, diameter, length, delays, propellant mass, and total mass")
+            diameter = float(description[1]) / 1000
+            length = float(description[2]) / 1000
+            propellant_mass = float(description[4])
+            loaded_mass = float(description[5])
+        except (OSError, TypeError, ValueError) as exc:
+            raise RocketConfigurationError(f"Invalid RASP motor header in {path}: {exc}") from exc
     if not all(math.isfinite(item) and item > 0 for item in (diameter, length, propellant_mass, loaded_mass)):
-        raise RocketConfigurationError(f"Motor dimensions and masses must be positive in {path}")
+        raise RocketConfigurationError(f"Motor dimensions and masses must be positive in {source_label}")
     if loaded_mass < propellant_mass:
         raise RocketConfigurationError(
-            f"Loaded motor mass cannot be less than propellant mass in {path}"
+            f"Loaded motor mass cannot be less than propellant mass in {source_label}"
         )
 
     geometry = geometry or {}
@@ -267,7 +311,7 @@ def _motor_from_eng(
     if grain_outer_radius > motor_radius:
         raise RocketConfigurationError(
             f"rocket.motor.grain_outer_radius ({grain_outer_radius:g} m) cannot exceed "
-            f"the motor radius ({motor_radius:g} m) from {path}"
+            f"the motor radius ({motor_radius:g} m) from {source_label}"
         )
     grain_density = _finite_number(
         geometry.get("grain_density", DEFAULT_PROPELLANT_DENSITY),
@@ -311,7 +355,7 @@ def _motor_from_eng(
     )
     if inner_radius_squared <= 0:
         raise RocketConfigurationError(
-            f"The propellant mass in {path} cannot fit inside a {grain_outer_radius:g} m "
+            f"The propellant mass in {source_label} cannot fit inside a {grain_outer_radius:g} m "
             f"outer radius and {propellant_length:g} m length at {grain_density:g} kg/m^3"
         )
     grain_inner_radius = math.sqrt(inner_radius_squared)
@@ -319,8 +363,17 @@ def _motor_from_eng(
     axial_inertia = modeled_dry_mass * motor_radius**2 / 2
     # RocketPy prepends [0, 0] while importing RASP files. Some curve files
     # already contain a time-zero sample, so collapse duplicate times here.
-    thrust_by_time = {float(time): float(thrust) for time, thrust in thrust_points}
+    try:
+        thrust_by_time = {float(time): float(thrust) for time, thrust in thrust_points}
+    except (TypeError, ValueError) as exc:
+        raise RocketConfigurationError(
+            f"Invalid thrust_vs_time data in {source_label}: expected [time, thrust] pairs"
+        ) from exc
     clean_thrust_points = [[time, thrust_by_time[time]] for time in sorted(thrust_by_time)]
+    if len(clean_thrust_points) < 2 or clean_thrust_points[0][0] == clean_thrust_points[-1][0]:
+        raise RocketConfigurationError(f"Motor {source_label} needs at least two distinct thrust times")
+    if not all(math.isfinite(time) and math.isfinite(thrust) for time, thrust in clean_thrust_points):
+        raise RocketConfigurationError(f"Motor {source_label} contains non-finite thrust data")
     throat_radius = _finite_number(
         geometry.get("throat_radius", min(0.01, motor_radius / 2)),
         "rocket.motor.throat_radius",
@@ -358,7 +411,7 @@ def _motor_from_eng(
     motor.grain_aft_position = nozzle_length
     motor.motor_length = nozzle_length + propellant_length
     motor.propellant_length = propellant_length
-    return motor, loaded_mass, path.resolve()
+    return motor, loaded_mass, path.resolve() if path is not None else None
 
 
 def _motor_from_json(config: Mapping[str, Any], base_dir: Path):
@@ -437,10 +490,10 @@ def simulation_readiness_issues(data: Mapping[str, Any]) -> list[str]:
     if not isinstance(rocket, Mapping):
         return ["rocket must be a JSON object"]
 
-    if not rocket.get("aero_curves"):
+    if not rocket.get("aero_curves") and not rocket.get("aero_curve_data"):
         issues.append(
-            "rocket.aero_curves requires a CSV containing Mach, Alpha, "
-            "CD Power-Off, and CD Power-On"
+            "rocket requires embedded aero_curve_data or an aero_curves CSV containing "
+            "Mach, Alpha, CD Power-Off, and CD Power-On"
         )
     inertia = rocket.get("inertia", {})
     try:
@@ -543,12 +596,24 @@ def build_rocket(
     automatic_motor = None
     motor_curve_path = None
     loaded_motor_mass = None
-    if config.get("thrust_curve"):
+    thrust_curve_path = config.get("thrust_curve")
+    thrust_curve_data = config.get("thrust_curve_data")
+    has_thrust_curve_path = thrust_curve_path not in (None, "")
+    has_thrust_curve_data = thrust_curve_data is not None
+    if has_thrust_curve_data and not isinstance(thrust_curve_data, Mapping):
+        raise RocketConfigurationError("rocket.thrust_curve_data must be a JSON object")
+    if has_thrust_curve_path and has_thrust_curve_data:
+        raise RocketConfigurationError(
+            "rocket must define only one of thrust_curve or thrust_curve_data"
+        )
+    if has_thrust_curve_path or has_thrust_curve_data:
         motor_geometry = config.get("motor", {})
         if not isinstance(motor_geometry, Mapping):
             raise RocketConfigurationError("rocket.motor must be a JSON object")
         automatic_motor, loaded_motor_mass, motor_curve_path = _motor_from_eng(
-            config["thrust_curve"], base_dir, motor_geometry
+            thrust_curve_data if has_thrust_curve_data else thrust_curve_path,
+            base_dir,
+            motor_geometry,
         )
         launch_mass = _finite_number(
             _require(config, "launch_mass", "rocket"), "rocket.launch_mass", positive=True
@@ -557,7 +622,8 @@ def build_rocket(
         if dry_rocket_mass <= 0:
             raise RocketConfigurationError(
                 f"rocket.launch_mass ({launch_mass:g} kg) must exceed loaded motor mass "
-                f"({loaded_motor_mass:g} kg) from {motor_curve_path}"
+                f"({loaded_motor_mass:g} kg) from "
+                f"{motor_curve_path or thrust_curve_data.get('designation', 'embedded motor')}"
             )
     else:
         # Motorless configurations are valid ballistic rockets. Treat an
@@ -576,7 +642,14 @@ def build_rocket(
     center_of_mass = _rocket_position(center_of_mass, total_length, orientation)
 
     aero_curve_path = None
-    if config.get("aero_curves"):
+    aero_curve_data = config.get("aero_curve_data")
+    if config.get("aero_curves") and aero_curve_data is not None:
+        raise RocketConfigurationError(
+            "rocket must define only one of aero_curves or aero_curve_data"
+        )
+    if aero_curve_data is not None:
+        power_off, power_on = _aero_sources_from_data(aero_curve_data)
+    elif config.get("aero_curves"):
         alpha = _finite_number(config.get("aero_curve_alpha", 0), "rocket.aero_curve_alpha")
         power_off, power_on, aero_curve_path = _aero_sources_from_csv(
             config["aero_curves"], base_dir, alpha=alpha
@@ -642,6 +715,7 @@ def build_rocket(
     rocket.launch_mass_from_json = launch_mass
     rocket.loaded_motor_mass_from_curve = loaded_motor_mass
     rocket.thrust_curve_file = motor_curve_path
+    rocket.thrust_curve_data = thrust_curve_data
 
     for index, stage in enumerate(stages):
         part_type = str(stage.get("part_type", "")).lower()
