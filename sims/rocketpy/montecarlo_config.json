@@ -27,8 +27,8 @@
     }
   },
   "simulation": {
-    "number_of_simulations": 200,
-    "workers": 10,
+    "number_of_simulations": 1000,
+    "workers": 20,
     "native_threads_per_worker": 1,
     "output_path": "monte_carlo_flights.pkl",
     "random_seed": 42,
@@ -54,7 +54,7 @@
       "sustainer_booster_impulse_ratio_percent": {
         "distribution": "normal",
         "mean": 100.0,
-        "std": 2.0
+        "std": 1.0
       },
       "booster_wet_mass_percent": {
         "distribution": "normal",
