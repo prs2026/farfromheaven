@@ -27,7 +27,7 @@
     }
   },
   "simulation": {
-    "number_of_simulations": 10,
+    "number_of_simulations": 200,
     "workers": 10,
     "native_threads_per_worker": 1,
     "output_path": "monte_carlo_flights.pkl",
