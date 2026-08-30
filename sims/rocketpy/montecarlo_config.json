@@ -1,7 +1,7 @@
 {
   "format": "projectblaze.rocketpy.monte_carlo_config",
   "format_version": 1,
-  "rocket_json": ".\\builtjsons\\ama4.25class3.json",
+  "rocket_json": ".\\builtjsons\\amaconfig14.json",
   "rockets": [
     "full_stack",
     "sustainer"
@@ -27,7 +27,7 @@
     }
   },
   "simulation": {
-    "number_of_simulations": 300,
+    "number_of_simulations": 100,
     "workers": 10,
     "native_threads_per_worker": 1,
     "output_path": "monte_carlo_flights.pkl",
@@ -46,7 +46,11 @@
         "std": 180
       },
       "rail_length": 6.0,
-      "coast_period": 10.0,
+      "coast_period": {
+        "distribution": "normal",
+        "mean": 10.0,
+        "std": 2.0
+      },
       "sustainer_booster_impulse_ratio_percent": {
         "distribution": "normal",
         "mean": 100.0,
