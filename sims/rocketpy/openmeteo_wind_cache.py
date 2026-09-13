@@ -11,11 +11,13 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import numpy as np
 
@@ -24,6 +26,7 @@ from openmeteo_environment import create_openmeteo_environment
 
 CACHE_FORMAT = "projectblaze.openmeteo.wind_profiles"
 CACHE_FORMAT_VERSION = 1
+GFS_MAX_FORECAST_DAYS = 16
 
 
 def _sample_hours(calls_per_day: int) -> tuple[int, ...]:
@@ -53,6 +56,92 @@ def _output_path(
             )
         path = Path(value)
     return (config_path.parent / path).resolve() if not path.is_absolute() else path.resolve()
+
+
+def _nonnegative_float(value: Any, name: str) -> float:
+    result = float(value)
+    if not math.isfinite(result) or result < 0:
+        raise ValueError(f"{name} must be a finite non-negative number")
+    return result
+
+
+def _positive_integer(value: Any, name: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+        raise ValueError(f"{name} must be a positive integer")
+    return value
+
+
+def _cache_payload(
+    settings: dict[str, Any], profiles: list[dict[str, Any]], *, complete: bool
+) -> dict[str, Any]:
+    return {
+        "format": CACHE_FORMAT,
+        "format_version": CACHE_FORMAT_VERSION,
+        "created_at_utc": datetime.now(timezone.utc).isoformat(),
+        "complete": complete,
+        "settings": settings,
+        "profiles": profiles,
+    }
+
+
+def _write_payload(path: Path, payload: dict[str, Any]) -> None:
+    """Atomically replace a cache/checkpoint JSON file."""
+
+    temporary_path = path.with_name(f".{path.name}.tmp")
+    temporary_path.write_text(
+        json.dumps(payload, separators=(",", ":")) + "\n", encoding="utf-8"
+    )
+    temporary_path.replace(path)
+
+
+def _resume_profiles(
+    path: Path, settings: dict[str, Any]
+) -> dict[tuple[str, str], dict[str, Any]]:
+    if not path.is_file():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        print(f"Ignoring unreadable cache checkpoint {path}: {exc}", flush=True)
+        return {}
+    if (
+        payload.get("format") != CACHE_FORMAT
+        or payload.get("format_version") != CACHE_FORMAT_VERSION
+        or payload.get("settings") != settings
+    ):
+        print(f"Ignoring cache checkpoint with different settings: {path}", flush=True)
+        return {}
+    profiles = payload.get("profiles", [])
+    if not isinstance(profiles, list):
+        return {}
+    return {
+        (str(profile["date"]), str(profile["time"])): profile
+        for profile in profiles
+        if isinstance(profile, dict) and "date" in profile and "time" in profile
+    }
+
+
+def _validate_forecast_window(
+    requests: list[tuple[Any, int]], timezone_name: str, endpoint: str
+) -> None:
+    if endpoint != "forecast" or not requests:
+        return
+    try:
+        current_local = datetime.now(ZoneInfo(timezone_name)).replace(tzinfo=None)
+    except ZoneInfoNotFoundError:
+        current_local = datetime.now()
+    latest_date, latest_hour = requests[-1]
+    latest_request = datetime.combine(latest_date, datetime.min.time()).replace(
+        hour=latest_hour
+    )
+    horizon = current_local + timedelta(days=GFS_MAX_FORECAST_DAYS)
+    if latest_request > horizon:
+        raise ValueError(
+            f"latest requested profile {latest_request:%Y-%m-%d %H:%M} is beyond "
+            f"the GFS {GFS_MAX_FORECAST_DAYS}-day forecast horizon (currently "
+            f"ending near {horizon:%Y-%m-%d %H:%M}). Reduce "
+            "wind_sampling.days_either_side or wait until closer to launch."
+        )
 
 
 def build_cache(config_path: str | Path, output_override: Path | None = None) -> Path:
@@ -85,6 +174,18 @@ def build_cache(config_path: str | Path, output_override: Path | None = None) ->
     endpoint = str(environment.get("endpoint", "forecast"))
     max_expected_height_m = float(environment.get("max_expected_height_m", 80_000.0))
     extend_above_model_top = bool(environment.get("extend_above_model_top", True))
+    request_interval_s = _nonnegative_float(
+        wind_sampling.get("request_interval_seconds", 3.0),
+        "environment.wind_sampling.request_interval_seconds",
+    )
+    retry_wait_s = _nonnegative_float(
+        wind_sampling.get("rate_limit_retry_wait_seconds", 65.0),
+        "environment.wind_sampling.rate_limit_retry_wait_seconds",
+    )
+    max_retries = _positive_integer(
+        wind_sampling.get("max_retries", 4),
+        "environment.wind_sampling.max_retries",
+    )
     settings = {
         "latitude": latitude,
         "longitude": longitude,
@@ -104,51 +205,97 @@ def build_cache(config_path: str | Path, output_override: Path | None = None) ->
         for offset in range(-days_either_side, days_either_side + 1)
     ]
     requests = [(date, hour) for date in dates for hour in sample_hours]
-    profiles = []
+    _validate_forecast_window(requests, timezone_name, endpoint)
+    output_path = _output_path(config_path, wind_sampling, output_override)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    partial_path = output_path.with_name(f"{output_path.name}.partial")
+    profiles_by_key = _resume_profiles(partial_path, settings)
+    if not profiles_by_key:
+        profiles_by_key = _resume_profiles(output_path, settings)
+    if profiles_by_key:
+        print(
+            f"Resuming with {len(profiles_by_key)} cached Open-Meteo profiles",
+            flush=True,
+        )
     print(f"Fetching {len(requests)} Open-Meteo profiles for cache", flush=True)
     for request_index, (sample_date, sample_hour) in enumerate(requests, start=1):
         date_text = sample_date.isoformat()
         time_text = f"{sample_hour:02d}:00"
+        key = (date_text, time_text)
+        if key in profiles_by_key:
+            print(
+                f"Using cached profile {request_index}/{len(requests)}: "
+                f"{date_text} {time_text} {timezone_name}",
+                flush=True,
+            )
+            continue
         print(
             f"Open-Meteo call {request_index}/{len(requests)}: "
             f"{date_text} {time_text} {timezone_name}",
             flush=True,
         )
-        result = create_openmeteo_environment(
-            latitude=latitude,
-            longitude=longitude,
-            date=date_text,
-            time=time_text,
-            timezone_name=timezone_name,
-            elevation_m=elevation_m,
-            model=model,
-            endpoint=endpoint,
-            max_expected_height_m=max_expected_height_m,
-            extend_above_model_top=extend_above_model_top,
-        )
-        profiles.append(
-            {
-                "date": date_text,
-                "time": time_text,
-                "pressure": result.pressure.tolist(),
-                "temperature": result.temperature.tolist(),
-                "wind_u": result.wind_u.tolist(),
-                "wind_v": result.wind_v.tolist(),
-                "model_top_height_m": result.model_top_height_m,
-            }
+        for attempt in range(max_retries + 1):
+            try:
+                result = create_openmeteo_environment(
+                    latitude=latitude,
+                    longitude=longitude,
+                    date=date_text,
+                    time=time_text,
+                    timezone_name=timezone_name,
+                    elevation_m=elevation_m,
+                    model=model,
+                    endpoint=endpoint,
+                    max_expected_height_m=max_expected_height_m,
+                    extend_above_model_top=extend_above_model_top,
+                )
+                break
+            except RuntimeError as exc:
+                if "HTTP 429" in str(exc) and attempt < max_retries:
+                    print(
+                        f"Rate limited; waiting {retry_wait_s:g} seconds before "
+                        f"retry {attempt + 1}/{max_retries}",
+                        flush=True,
+                    )
+                    time.sleep(retry_wait_s)
+                    continue
+                if "No valid rows" in str(exc) or "no hourly data" in str(exc):
+                    raise RuntimeError(
+                        f"Open-Meteo has no complete pressure-level profile for "
+                        f"{date_text} {time_text} {timezone_name}. This hour may "
+                        "be at the edge of the GFS forecast horizon; reduce "
+                        "wind_sampling.days_either_side or retry closer to launch. "
+                        f"Completed profiles remain in {partial_path}."
+                    ) from exc
+                raise
+        profile = {
+            "date": date_text,
+            "time": time_text,
+            "pressure": result.pressure.tolist(),
+            "temperature": result.temperature.tolist(),
+            "wind_u": result.wind_u.tolist(),
+            "wind_v": result.wind_v.tolist(),
+            "model_top_height_m": result.model_top_height_m,
+        }
+        profiles_by_key[key] = profile
+        completed_profiles = [
+            profiles_by_key[(date.isoformat(), f"{hour:02d}:00")]
+            for date, hour in requests
+            if (date.isoformat(), f"{hour:02d}:00") in profiles_by_key
+        ]
+        _write_payload(
+            partial_path,
+            _cache_payload(settings, completed_profiles, complete=False),
         )
         print(f"Completed Open-Meteo call {request_index}/{len(requests)}", flush=True)
+        if request_interval_s and request_index < len(requests):
+            time.sleep(request_interval_s)
 
-    payload = {
-        "format": CACHE_FORMAT,
-        "format_version": CACHE_FORMAT_VERSION,
-        "created_at_utc": datetime.now(timezone.utc).isoformat(),
-        "settings": settings,
-        "profiles": profiles,
-    }
-    output_path = _output_path(config_path, wind_sampling, output_override)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text(json.dumps(payload, separators=(",", ":")) + "\n", encoding="utf-8")
+    profiles = [
+        profiles_by_key[(date.isoformat(), f"{hour:02d}:00")]
+        for date, hour in requests
+    ]
+    _write_payload(output_path, _cache_payload(settings, profiles, complete=True))
+    partial_path.unlink(missing_ok=True)
     print(f"Saved {len(profiles)} weather profiles to {output_path}", flush=True)
     return output_path
 

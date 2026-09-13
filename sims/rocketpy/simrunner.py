@@ -6,7 +6,14 @@ import math
 from copy import deepcopy
 from dataclasses import dataclass
 
-from rocketpy import EmptyMotor, Environment, Flight, GenericMotor, Rocket
+from rocketpy import (
+    EmptyMotor,
+    Environment,
+    Flight,
+    GenericMotor,
+    Rocket,
+    reset_funcified_methods,
+)
 
 
 @dataclass(frozen=True)
@@ -21,6 +28,29 @@ class FullStackSimulationResult:
     tilt_lockout_triggered: bool
 
 
+def _normalize_flight_quaternions(flight: Flight) -> Flight:
+    """Remove integration drift from the quaternion flight-state columns.
+
+    RocketPy 1.13 calculates its displayed nutation angle with ``arcsin``.
+    Small solver drift can make an otherwise valid quaternion slightly longer
+    than one, placing that calculation outside the function's domain and
+    causing ``Flight.info()`` to fail with a NaN interpolation error.
+    """
+    for state in flight.solution:
+        if len(state) < 11:
+            continue
+        norm = math.sqrt(sum(float(component) ** 2 for component in state[7:11]))
+        if math.isfinite(norm) and norm > 0:
+            state[7:11] = [float(component) / norm for component in state[7:11]]
+
+    # These values are lazy, but clear them in case a RocketPy version creates
+    # one during Flight construction before this post-processing step.
+    reset_funcified_methods(flight)
+    for cached_property in ("solution_array", "time", "time_steps"):
+        flight.__dict__.pop(cached_property, None)
+    return flight
+
+
 def run_single_simulation(
     rocket: Rocket,
     environment: Environment,
@@ -33,15 +63,17 @@ def run_single_simulation(
     atol: float = 1e-6,
 ) -> Flight:
     """Run one simulation and return its RocketPy ``Flight`` object."""
-    return Flight(
-        rocket=rocket,
-        environment=environment,
-        rail_length=rail_length,
-        inclination=inclination,
-        heading=heading,
-        max_time_step=max_time_step,
-        rtol=rtol,
-        atol=atol,
+    return _normalize_flight_quaternions(
+        Flight(
+            rocket=rocket,
+            environment=environment,
+            rail_length=rail_length,
+            inclination=inclination,
+            heading=heading,
+            max_time_step=max_time_step,
+            rtol=rtol,
+            atol=atol,
+        )
     )
 
 

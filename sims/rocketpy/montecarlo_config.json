@@ -11,7 +11,7 @@
     "latitude": 40.870683,
     "longitude": -119.10695,
     "elevation_m": 1191.0,
-    "date": "2026-09-06",
+    "date": "2026-09-26",
     "time": "12:00",
     "timezone": "America/Los_Angeles",
     "model": "gfs_seamless",
@@ -21,9 +21,12 @@
     "wind_sampling": {
       "enabled": true,
       "cache_file": "openmeteo_wind_cache.json",
-      "calls_per_day": 8,
-      "days_either_side": 2,
-      "time_of_day_std_hours": 4
+      "calls_per_day": 6,
+      "days_either_side": 1,
+      "time_of_day_std_hours": 2,
+      "request_interval_seconds": 3,
+      "rate_limit_retry_wait_seconds": 65,
+      "max_retries": 4
     }
   },
   "simulation": {
