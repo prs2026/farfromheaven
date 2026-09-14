@@ -1,7 +1,7 @@
 {
   "format": "projectblaze.rocketpy.monte_carlo_config",
   "format_version": 1,
-  "rocket_json": "./ejarrocket.json",
+  "rocket_json": "./ONCrocket.json",
   "allow_incomplete_rocket": false,
   "environment": {
     "latitude": 40.870683,
@@ -29,7 +29,7 @@
     "number_of_simulations": 100,
     "workers": 10,
     "native_threads_per_worker": 1,
-    "output_path": "monte_carlo_flightsejar.pkl",
+    "output_path": "monte_carlo_flightsONC.pkl",
     "random_seed": 42,
     "parameters": {
       "launch_angle": {
