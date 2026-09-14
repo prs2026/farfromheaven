@@ -30,11 +30,11 @@
     }
   },
   "simulation": {
-    "number_of_simulations": 600,
+    "number_of_simulations": 50,
     "workers": 10,
     "native_threads_per_worker": 1,
     "output_path": "monte_carlo_flights.pkl",
-    "random_seed": 42,
+    "random_seed": null,
     "parameters": {
       "launch_angle": {
         "distribution": "normal",

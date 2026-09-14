@@ -24,6 +24,7 @@ import math
 import os
 import pickle
 import random
+import secrets
 import sys
 import tempfile
 import time
@@ -595,9 +596,35 @@ def load_monte_carlo_output(path: str | Path) -> dict[str, Any]:
             raise TypeError("Monte Carlo pickle metadata must be a dictionary")
         if payload.get("storage") == "pickle_stream":
             flight_count = int(payload.get("flight_record_count", 0))
-            payload["flights"] = [
-                pickle.load(pickle_file) for _ in range(flight_count)
-            ]
+            merged_sources = payload.get("merged_sources")
+            if isinstance(merged_sources, list) and sum(
+                int(source.get("flight_record_count", 0))
+                for source in merged_sources
+                if isinstance(source, Mapping)
+            ) == flight_count:
+                flights = []
+                for source in merged_sources:
+                    source_record_count = int(source["flight_record_count"])
+                    simulation_offset = int(source.get("simulation_offset", 0))
+                    for _ in range(source_record_count):
+                        record = pickle.load(pickle_file)
+                        if isinstance(record, dict):
+                            source_index = int(record.get("simulation_index", 0))
+                            record["source_simulation_index"] = source_index
+                            record["simulation_index"] = simulation_offset + source_index
+                            weather_sample = record.get("weather_sample")
+                            if isinstance(weather_sample, dict):
+                                weather_sample = dict(weather_sample)
+                                weather_sample["simulation_index"] = (
+                                    simulation_offset + source_index
+                                )
+                                record["weather_sample"] = weather_sample
+                        flights.append(record)
+                payload["flights"] = flights
+            else:
+                payload["flights"] = [
+                    pickle.load(pickle_file) for _ in range(flight_count)
+                ]
     return payload
 
 
@@ -1274,6 +1301,21 @@ def _resolve_config_path(value: Any, base_directory: Path, field: str) -> Path:
     return (base_directory / path).resolve() if not path.is_absolute() else path.resolve()
 
 
+def randomized_pickle_path(path: str | Path) -> Path:
+    """Return an unused output path with a random number after its stem."""
+
+    base_path = Path(path).expanduser().resolve()
+    suffix = base_path.suffix or ".pkl"
+    for _ in range(100):
+        random_number = secrets.randbelow(1_000_000_000_000)
+        candidate = base_path.with_name(
+            f"{base_path.stem}_{random_number:012d}{suffix}"
+        )
+        if not candidate.exists():
+            return candidate
+    raise RuntimeError("could not generate an unused Monte Carlo output filename")
+
+
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Run a RocketPy Monte Carlo simulation from one JSON config file."
@@ -1339,10 +1381,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             raise ValueError("simulation.parameters must be an object")
         # Build the full plan here so --validate-only checks every distribution.
         _parameter_plan(parameters, number_of_simulations, random_seed)
-        output_path = _resolve_config_path(
-            simulation.get("output_path", "monte_carlo_flights.pkl"),
-            base_directory,
-            "simulation.output_path",
+        output_path = randomized_pickle_path(
+            _resolve_config_path(
+                simulation.get("output_path", "monte_carlo_flights.pkl"),
+                base_directory,
+                "simulation.output_path",
+            )
         )
 
         environment_config = _config_section(config, "environment")
@@ -1526,6 +1570,7 @@ __all__ = [
     "load_monte_carlo_output",
     "load_monte_carlo_config",
     "parse_args",
+    "randomized_pickle_path",
     "run_monte_carlo",
 ]
 
