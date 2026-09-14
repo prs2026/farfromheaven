@@ -33,7 +33,7 @@
     "number_of_simulations": 50,
     "workers": 20,
     "native_threads_per_worker": 1,
-    "output_path": "/HPC/monte_carlo_flights.pkl",
+    "output_path": "./HPC/monte_carlo_flights.pkl",
     "random_seed": null,
     "parameters": {
       "launch_angle": {
