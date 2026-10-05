@@ -34,16 +34,24 @@
         <InclinedPlate2FrontalArea>0</InclinedPlate2FrontalArea>
       </Protuberance>
     </BodyTube>
+    <Transition>
+      <PartType>Transition</PartType>
+      <Length>0.25</Length>
+      <Diameter>3</Diameter>
+      <Location>22.94</Location>
+      <RearDiameter>3</RearDiameter>
+      <Color>Black</Color>
+    </Transition>
     <BodyTube>
       <PartType>BodyTube</PartType>
       <Length>42.195</Length>
-      <Diameter>2.91</Diameter>
+      <Diameter>3</Diameter>
       <LaunchLugDiameter>0</LaunchLugDiameter>
       <LaunchLugLength>0</LaunchLugLength>
       <RailGuideDiameter>0</RailGuideDiameter>
       <RailGuideHeight>0</RailGuideHeight>
       <LaunchShoeArea>0</LaunchShoeArea>
-      <Location>22.94</Location>
+      <Location>23.19</Location>
       <Color>Black</Color>
       <BoattailLength>0</BoattailLength>
       <BoattailRearDiameter>0</BoattailRearDiameter>
@@ -52,43 +60,43 @@
     </BodyTube>
     <FinCan>
       <PartType>FinCan</PartType>
-      <Length>8.5</Length>
-      <Diameter>3.1</Diameter>
-      <InsideDiameter>2.91</InsideDiameter>
+      <Length>9</Length>
+      <Diameter>3.19</Diameter>
+      <InsideDiameter>3</InsideDiameter>
       <LaunchLugDiameter>0</LaunchLugDiameter>
       <LaunchLugLength>0</LaunchLugLength>
       <RailGuideDiameter>0</RailGuideDiameter>
       <RailGuideHeight>0</RailGuideHeight>
       <LaunchShoeArea>0</LaunchShoeArea>
-      <Location>65.135</Location>
+      <Location>65.385</Location>
       <ShoulderLength>1</ShoulderLength>
-      <Offset>-8.5</Offset>
+      <Offset>-9</Offset>
       <Color>Black</Color>
       <Fin>
         <Count>4</Count>
-        <Chord>8.5</Chord>
-        <Span>4.5</Span>
-        <SweepDistance>6.25</SweepDistance>
+        <Chord>9</Chord>
+        <Span>3.75</Span>
+        <SweepDistance>6.5</SweepDistance>
         <TipChord>4.5</TipChord>
-        <Thickness>0.125</Thickness>
+        <Thickness>0.15</Thickness>
         <LERadius>0.01</LERadius>
-        <Location>8.5</Location>
+        <Location>9</Location>
         <AirfoilSection>Hexagonal</AirfoilSection>
-        <FX1>0.5511</FX1>
-        <FX3>0.5511</FX3>
+        <FX1>0.512</FX1>
+        <FX3>0.512</FX3>
       </Fin>
     </FinCan>
     <Booster>
       <PartType>Booster</PartType>
       <Length>40</Length>
-      <Diameter>3.1</Diameter>
-      <InsideDiameter>3.1</InsideDiameter>
+      <Diameter>3.19</Diameter>
+      <InsideDiameter>3.19</InsideDiameter>
       <LaunchLugDiameter>0</LaunchLugDiameter>
       <LaunchLugLength>0</LaunchLugLength>
       <RailGuideDiameter>0</RailGuideDiameter>
       <RailGuideHeight>0</RailGuideHeight>
       <LaunchShoeArea>0.3</LaunchShoeArea>
-      <Location>65.135</Location>
+      <Location>65.385</Location>
       <ShoulderLength>0</ShoulderLength>
       <Color>Black</Color>
       <NozzleExitDiameter>0</NozzleExitDiameter>
@@ -149,8 +157,8 @@
       <SustainerNozzleDiameter>2.5</SustainerNozzleDiameter>
       <SustainerCG>43</SustainerCG>
       <SustainerIgnitionDelay>6</SustainerIgnitionDelay>
-      <Booster1Engine>M2922  (TsKrush)</Booster1Engine>
-      <Booster1LaunchWt>37</Booster1LaunchWt>
+      <Booster1Engine>M3140  (TsKrush)</Booster1Engine>
+      <Booster1LaunchWt>38.84</Booster1LaunchWt>
       <Booster1SeparationDelay>0</Booster1SeparationDelay>
       <Booster1IgnitionDelay>0</Booster1IgnitionDelay>
       <Booster1CG>58.5</Booster1CG>
@@ -162,9 +170,9 @@
       <Booster2NozzleDiameter>0</Booster2NozzleDiameter>
       <IncludeBooster2>False</IncludeBooster2>
       <FlightTime>0</FlightTime>
-      <TimetoApogee>79.46805</TimetoApogee>
-      <MaxAltitude>105958.3</MaxAltitude>
-      <MaxVelocity>4555.179</MaxVelocity>
+      <TimetoApogee>80.49825</TimetoApogee>
+      <MaxAltitude>108559.2</MaxAltitude>
+      <MaxVelocity>4589.513</MaxVelocity>
       <OptimumWt>0</OptimumWt>
       <OptimumMaxAlt>0</OptimumMaxAlt>
     </Simulation>

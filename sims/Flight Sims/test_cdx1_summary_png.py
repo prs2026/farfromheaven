@@ -3,7 +3,10 @@
 import unittest
 import xml.etree.ElementTree as ET
 
-from cdx1_summary_png import _fin_root_le, _parse_part, _part_polygon, _resolve_geometry
+from cdx1_summary_png import (
+    _additional_input_cards, _fin_root_le, _parse_fin, _parse_part,
+    _part_polygon, _resolve_geometry,
+)
 
 
 def geometry(xml):
@@ -13,6 +16,34 @@ def geometry(xml):
 
 
 class ProfileGeometryTests(unittest.TestCase):
+    def test_tip_and_fin_radii_distinguish_zero_from_missing(self):
+        nose = _parse_part(ET.fromstring('<NoseCone><BluntRadius>0.125</BluntRadius></NoseCone>'), 1)
+        self.assertEqual(nose['tip_radius'], 0.125)
+        self.assertEqual(_parse_fin(ET.fromstring('<Fin><LERadius>0</LERadius></Fin>'))['le_radius'], 0)
+        self.assertIsNone(_parse_fin(ET.fromstring('<Fin/>'))['le_radius'])
+
+    def test_additional_input_cards_only_show_requested_fields(self):
+        root = ET.fromstring('''<RASAeroDocument><RocketDesign>
+          <BodyTube><Length>20</Length><RailGuideHeight>0.6</RailGuideHeight>
+            <RailGuideDiameter>0.7</RailGuideDiameter><LaunchShoeArea>0</LaunchShoeArea>
+            <BoattailLength>0</BoattailLength><Location>10</Location>
+            <Protuberance><StreamlinedWithBaseDrag>0.65</StreamlinedWithBaseDrag></Protuberance>
+            <Fin><LERadius>0.01</LERadius><FX1>0.75</FX1><Location>8</Location></Fin>
+            <Fin><FX1>0.5</FX1></Fin></BodyTube>
+          <ModifiedBarrowman>True</ModifiedBarrowman>
+          <Turbulence>False</Turbulence><FutureSetting>0</FutureSetting>
+        </RocketDesign><MachAlt><Point><Mach>8</Mach><Altitude>120000</Altitude></Point></MachAlt>
+        <SimulationList><Simulation><ExtraDelay>2.5</ExtraDelay></Simulation></SimulationList>
+        </RASAeroDocument>''')
+        cards = _additional_input_cards(root)
+        fields = [field for _, rows in cards for field in rows]
+        self.assertEqual(fields, [
+            ['ModifiedBarrowman', 'True'], ['Turbulence', 'False'],
+            ['RailGuideDiameter (in)', '0.7'], ['LaunchShoeArea (in²)', '0'],
+            ['StreamlinedWithBaseDrag', '0.65'],
+        ])
+        self.assertTrue(all(rows for _, rows in cards))
+
     def test_fin_can_ends_where_expanding_booster_begins(self):
         tube, sleeve, booster = geometry("""<Design>
           <BodyTube><Location>15</Location><Length>53</Length><Diameter>2.91</Diameter></BodyTube>

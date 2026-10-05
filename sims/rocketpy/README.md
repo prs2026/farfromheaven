@@ -107,6 +107,15 @@ contains a labeled side profile, component dimensions, fin geometry, launch
 masses, centers of gravity, motor names, launch-site settings, recovery events,
 and any nonzero simulation results saved in the CDX1 file. Dimensions are shown
 in inches, masses in pounds, and other values in RASAero's native imperial units.
+The main geometry tables include nose-tip blunt radius and fin leading-edge
+radius. Additional two-column tables show only Modified Barrowman, turbulence,
+protuberances, launch-shoe area, and rail-guide diameters. Zero and disabled inputs are
+retained, and sheet height grows to fit. The sheet reports what is saved in the
+CDX1; it does not load external motor thrust data or run a new simulation.
+Saved results also show a derived sea-level Mach number: maximum velocity in
+ft/s divided by 1116.45 ft/s (standard sea-level sound speed at 59 °F). This is
+a fixed-reference conversion, not the flight's actual maximum Mach at altitude.
+The value is left blank when no positive maximum velocity is saved.
 
 For Windows Explorer use, drag one or more `.CDX1` files onto
 [`cdx1_summary_png.bat`](../Flight%20Sims/cdx1_summary_png.bat). Each output is written beside its source as

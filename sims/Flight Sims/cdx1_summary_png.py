@@ -24,6 +24,9 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import Polygon
 
 
+# Standard-atmosphere sea-level sound speed at 59 °F (15 °C), in ft/s.
+# https://ntrs.nasa.gov/api/citations/19880002266/downloads/19880002266.pdf
+SEA_LEVEL_SOUND_SPEED_FPS = 1116.45
 PART_TAGS = {"NoseCone", "BodyTube", "FinCan", "Booster", "Transition", "BoatTail"}
 PART_COLORS = {
     "nosecone": "#64748b",
@@ -73,6 +76,7 @@ def _parse_fin(element: ET.Element) -> dict[str, Any]:
         "sweep": _float(element, "SweepDistance"),
         "tip_chord": _float(element, "TipChord"),
         "thickness": _float(element, "Thickness"),
+        "le_radius": _optional_float(element, "LERadius"),
         "location": _float(element, "Location"),
         "airfoil": _text(element, "AirfoilSection", "Not specified"),
     }
@@ -92,6 +96,7 @@ def _parse_part(element: ET.Element, index: int) -> dict[str, Any]:
         "boattail_length": _float(element, "BoattailLength"),
         "boattail_rear_diameter": _float(element, "BoattailRearDiameter"),
         "shape": _text(element, "Shape"),
+        "tip_radius": _optional_float(element, "BluntRadius"),
         "color": _text(element, "Color"),
         "fins": [_parse_fin(fin) for fin in element.findall("Fin")],
     }
@@ -146,6 +151,11 @@ def parse_cdx1(path: str | Path) -> dict[str, Any]:
                 "boosters": [
                     {
                         "number": booster_number,
+                        "has_fields": any(
+                            child.tag.startswith(f"Booster{booster_number}")
+                            or child.tag == f"IncludeBooster{booster_number}"
+                            for child in simulation
+                        ),
                         "engine": _text(
                             simulation, f"Booster{booster_number}Engine"
                         ),
@@ -177,9 +187,9 @@ def parse_cdx1(path: str | Path) -> dict[str, Any]:
     recovery = []
     for event_number in (1, 2):
         enabled = _boolean(recovery_element, f"Event{event_number}")
-        if enabled or any(
-            _text(recovery_element, f"{field}{event_number}")
-            for field in ("DeviceType", "EventType", "Size", "CD")
+        if recovery_element is not None and any(
+            recovery_element.find(f"{field}{event_number}") is not None
+            for field in ("Event", "Altitude", "DeviceType", "EventType", "Size", "CD")
         ):
             recovery.append(
                 {
@@ -206,7 +216,101 @@ def parse_cdx1(path: str | Path) -> dict[str, Any]:
         "recovery": recovery,
         "surface": _text(design, "Surface", "Not specified"),
         "comments": _text(design, "Comments"),
+        "additional_inputs": _additional_input_cards(root),
     }
+
+
+def _additional_input_cards(root: ET.Element) -> list[tuple[str, list[list[str]]]]:
+    """Collect only the requested aerodynamic and launch-hardware inputs."""
+    allowed = {
+        "RocketDesign": {"ModifiedBarrowman", "Turbulence"},
+        **{tag: {"LaunchShoeArea", "RailGuideDiameter"} for tag in PART_TAGS},
+    }
+    cards = []
+
+    def visit(node: ET.Element, title: str, in_protuberance: bool = False) -> None:
+        in_protuberance = in_protuberance or node.tag == "Protuberance"
+        rows = []
+        for child in node:
+            if len(child):
+                continue
+            if not in_protuberance and child.tag not in allowed.get(node.tag, set()):
+                continue
+            label = child.tag
+            if label == "RailGuideDiameter":
+                label += " (in)"
+            elif label in {"LaunchShoeArea", "InclinedPlate1FrontalArea", "InclinedPlate2FrontalArea"}:
+                label += " (in²)"
+            elif label in {"InclinedPlate1Angle", "InclinedPlate2Angle"}:
+                label += " (deg)"
+            rows.append([label, (child.text or "").strip() or "(empty)"])
+        # Limit each card to a readable size; long/unknown field values wrap.
+        for start in range(0, len(rows), 10):
+            suffix = f" ({start // 10 + 1})" if len(rows) > 10 else ""
+            cards.append((title + suffix, rows[start:start + 10]))
+        counts: dict[str, int] = {}
+        part_index = 0
+        for child in node:
+            if not len(child):
+                continue
+            counts[child.tag] = counts.get(child.tag, 0) + 1
+            if child.tag in PART_TAGS:
+                part_index += 1
+                child_title = f"{part_index} {child.tag}"
+            elif child.tag == "Simulation":
+                child_title = f"Simulation {counts[child.tag]}"
+            elif node is root:
+                child_title = child.tag
+            else:
+                child_title = f"{title} / {child.tag} {counts[child.tag]}"
+            visit(child, child_title, in_protuberance)
+
+    visit(root, "Document settings")
+    return cards
+
+
+def _extra_card_rows(cards: Sequence[tuple[str, list[list[str]]]]) -> list[list[Any]]:
+    """Prepare three-card rows with wrapped text and physical row heights."""
+    batches = []
+    for start in range(0, len(cards), 3):
+        batch = []
+        for title, fields in cards[start:start + 3]:
+            wrapped = [
+                [textwrap.fill(label, 28), textwrap.fill(value, 28)]
+                for label, value in fields
+            ]
+            lines = sum(max(label.count("\n"), value.count("\n")) + 1
+                        for label, value in wrapped)
+            batch.append((textwrap.fill(title, 42), wrapped, 0.65 + 0.23 * lines))
+        batches.append(batch)
+    return batches
+
+
+def _draw_extra_cards(axis: Any, batches: list[list[Any]]) -> None:
+    axis.axis("off")
+    axis.set_title("Additional saved CDX1 inputs (original field names)",
+                   loc="left", fontsize=11, fontweight="bold", pad=7)
+    heights = [max(card[2] for card in batch) for batch in batches]
+    total = sum(heights)
+    top = 1.0
+    for batch, height in zip(batches, heights):
+        row_height = height / total
+        width, gap = 0.32, 0.02
+        left = (1 - (len(batch) * width + (len(batch) - 1) * gap)) / 2
+        for index, (title, fields, _) in enumerate(batch):
+            # Reserve a fixed physical gap for headings even on short rows.
+            card_axis = axis.inset_axes([left + index * (width + gap),
+                                        top - row_height + 0.07 / total,
+                                        width, (height - 0.45) / total])
+            _style_table(card_axis, title, ("Field", "Saved value"), fields, font_size=7.5)
+            card_axis.title.set_fontsize(9)
+            table = next(iter(card_axis.tables))
+            # Allocate space by wrapped line count instead of clipping text.
+            row_lines = [1] + [max(a.count("\n"), b.count("\n")) + 1 for a, b in fields]
+            for (row, column), cell in table.get_celld().items():
+                cell.set_height(0.92 * row_lines[row] / sum(row_lines))
+                cell.get_text().set_ha("left")
+        top -= row_height
 
 
 def _inches(value_in: float) -> str:
@@ -517,8 +621,6 @@ def render_summary(
         detail_items = [part["shape"]] if part["shape"] else []
         if rear:
             detail_items.append(f"Rear OD {rear:g} in")
-        if part["boattail_length"]:
-            detail_items.append(f"Boattail {part['boattail_length']:g} in")
         details = "; ".join(detail_items) or "—"
         part_rows.append(
             [
@@ -526,14 +628,13 @@ def render_summary(
                 part["part_type"],
                 _inches(part["profile_start"]),
                 _inches(part["length"]),
+                _inches(part["shoulder_length"]),
+                _inches(part["boattail_length"]),
+                _inches(part["profile_end"] - part["profile_start"]),
                 _inches(part["diameter"]),
-                _inches(part["inside_diameter"])
-                if part["inside_diameter"]
-                else "—",
-                _inches(part["shoulder_length"])
-                if part["shoulder_length"]
-                else "—",
+                _inches(part["inside_diameter"]),
                 details,
+                f"{part['tip_radius']:g}" if part["tip_radius"] is not None else "—",
             ]
         )
         for fin_index, fin in enumerate(part["fins"], start=1):
@@ -550,6 +651,7 @@ def render_summary(
                     _inches(fin["thickness"]),
                     _inches(root_le),
                     fin["airfoil"],
+                    f"{fin['le_radius']:g}" if fin["le_radius"] is not None else "—",
                 ]
             )
 
@@ -566,15 +668,11 @@ def render_summary(
                 _inches(simulation["sustainer_cg"]),
                 f"{simulation['sustainer_ignition_delay']:g}",
                 "—",
-                _inches(simulation["sustainer_nozzle"])
-                if simulation["sustainer_nozzle"]
-                else "—",
+                _inches(simulation["sustainer_nozzle"]),
             ]
         )
         for booster in simulation["boosters"]:
-            if not any(
-                (booster["included"], booster["engine"], booster["mass"], booster["cg"])
-            ):
+            if not booster["has_fields"]:
                 continue
             simulation_rows.append(
                 [
@@ -586,9 +684,7 @@ def render_summary(
                     _inches(booster["cg"]),
                     f"{booster['ignition_delay']:g}",
                     f"{booster['separation_delay']:g}",
-                    _inches(booster["nozzle"])
-                    if booster["nozzle"]
-                    else "—",
+                    _inches(booster["nozzle"]),
                 ]
             )
 
@@ -605,6 +701,11 @@ def render_summary(
                     saved_value("time_to_apogee", "s"),
                     saved_value("max_altitude", "ft"),
                     saved_value("max_velocity", "ft/s"),
+                    (
+                        f"{results['max_velocity'] / SEA_LEVEL_SOUND_SPEED_FPS:.3f} (derived)"
+                        if results["max_velocity"] is not None and results["max_velocity"] > 0
+                        else "—"
+                    ),
                     saved_value("optimum_weight", "lb"),
                     saved_value("optimum_max_altitude", "ft"),
                 ]
@@ -630,9 +731,7 @@ def render_summary(
             "Yes" if event["enabled"] else "No",
             event["device"],
             event["event_type"],
-            f"{event['altitude']:g} ft"
-            if event["event_type"].casefold() == "altitude"
-            else "—",
+            f"{event['altitude']:g} ft",
             _inches(event["size"]),
             f"{event['cd']:g}",
         ]
@@ -642,25 +741,29 @@ def render_summary(
     def card_rows(count: int, columns: int = 3) -> int:
         return max(1, math.ceil(count / columns))
 
-    section_heights = (
+    extra_batches = _extra_card_rows(data["additional_inputs"])
+    extra_height = sum(max(card[2] for card in batch) for batch in extra_batches)
+    section_heights = [
         3.2,
-        2.25 * card_rows(len(part_rows)),
-        2.5 * card_rows(len(fin_rows)),
+        3.0 * card_rows(len(part_rows)),
+        2.75 * card_rows(len(fin_rows)),
         2.7 * card_rows(len(simulation_rows)),
-        2.25 * card_rows(len(saved_result_rows)),
+        2.5 * card_rows(len(saved_result_rows)),
         max(1.8, 2.0 * card_rows(len(recovery_rows), 2)),
-    )
-    figure_height = max(16.0, min(34.0, 2.0 + sum(section_heights)))
+    ]
+    if extra_batches:
+        section_heights.append(extra_height)
+    figure_height = max(16.0, 3.0 + sum(section_heights))
     figure = plt.figure(figsize=(18, figure_height), facecolor="white")
     grid = figure.add_gridspec(
-        6,
+        len(section_heights),
         2,
         height_ratios=section_heights,
         left=0.05,
         right=0.95,
-        top=0.90,
-        bottom=0.07,
-        hspace=0.42,
+        top=1 - 1.6 / figure_height,
+        bottom=0.8 / figure_height,
+        hspace=0.20,
         wspace=0.16,
     )
     diagram_axis = figure.add_subplot(grid[0, :])
@@ -676,7 +779,7 @@ def render_summary(
     figure.suptitle(
         f"{source.stem} — RASAero design summary",
         x=0.5,
-        y=0.975,
+        y=1 - 0.35 / figure_height,
         ha="center",
         fontsize=18,
         fontweight="bold",
@@ -684,7 +787,7 @@ def render_summary(
     )
     figure.text(
         0.5,
-        0.945,
+        1 - 0.85 / figure_height,
         f"CDX1 version {data['file_version']}  •  Surface: {data['surface']}  •  "
         f"Envelope: {total_length:g} in long × {max_diameter:g} in maximum body diameter\n"
         "Dimensions: inches; masses: pounds; other values use native imperial units",
@@ -698,8 +801,9 @@ def render_summary(
     _style_transposed_tables(
         parts_axis,
         "Components",
-        ("#", "Component", "Front from nose\nin", "Body/part length\nin", "OD\nin",
-         "ID\nin", "Shoulder\nin", "Shape or aft detail"),
+        ("#", "Component", "Front from nose\nin", "Body/part length\nin",
+         "Shoulder/transition\nin", "Boattail length\nin", "Total part length\nin",
+         "OD\nin", "ID\nin", "Shape or aft detail", "Nose tip radius\nin"),
         part_rows,
         title_columns=2,
     )
@@ -708,7 +812,7 @@ def render_summary(
         "Fin sets",
         ("ID", "Component", "Count", "Root chord\nin", "Tip chord\nin",
          "Span\nin", "Sweep\nin", "Thickness\nin",
-         "Root LE from nose\nin", "Airfoil"),
+         "Root LE from nose\nin", "Airfoil", "LE radius\nin"),
         fin_rows,
         title_columns=2,
         font_size=7.0,
@@ -727,7 +831,8 @@ def render_summary(
         results_axis,
         "Saved RASAero simulation results",
         ("Sim", "Flight time", "Time to apogee", "Maximum altitude",
-         "Maximum velocity", "Optimum weight", "Optimum max altitude"),
+         "Maximum velocity", "Sea-level Mach (59 °F)",
+         "Optimum weight", "Optimum max altitude"),
         saved_result_rows,
         title_columns=1,
         font_size=7.4,
@@ -743,10 +848,12 @@ def render_summary(
         max_columns=2,
         font_size=7.3,
     )
+    if extra_batches:
+        _draw_extra_cards(figure.add_subplot(grid[6, :]), extra_batches)
 
     figure.text(
         0.5,
-        0.025,
+        0.30 / figure_height,
         textwrap.fill(
             f"Source: {source}"
             + (f"  •  Comments: {data['comments']}" if data["comments"] else ""),
