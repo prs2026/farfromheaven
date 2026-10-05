@@ -36,6 +36,16 @@ PART_COLORS = {
     "boattail": "#fb7185",
     "booster": "#8b5cf6",
 }
+# Dark headers support white text; pale stripes keep values easy to read.
+SECTION_COLORS = {
+    "components": ("#1e40af", "#eff6ff"),
+    "fins": ("#166534", "#f0fdf4"),
+    "motors": ("#9a3412", "#fff7ed"),
+    "results": ("#6b21a8", "#faf5ff"),
+    "launch": ("#155e75", "#ecfeff"),
+    "recovery": ("#9f1239", "#fff1f2"),
+    "additional": ("#475569", "#f1f5f9"),
+}
 
 
 def _text(element: ET.Element | None, name: str, default: str = "") -> str:
@@ -289,7 +299,8 @@ def _extra_card_rows(cards: Sequence[tuple[str, list[list[str]]]]) -> list[list[
 def _draw_extra_cards(axis: Any, batches: list[list[Any]]) -> None:
     axis.axis("off")
     axis.set_title("Additional saved CDX1 inputs (original field names)",
-                   loc="left", fontsize=11, fontweight="bold", pad=7)
+                   loc="left", fontsize=11, fontweight="bold", pad=7,
+                   color=SECTION_COLORS["additional"][0])
     heights = [max(card[2] for card in batch) for batch in batches]
     total = sum(heights)
     top = 1.0
@@ -302,7 +313,8 @@ def _draw_extra_cards(axis: Any, batches: list[list[Any]]) -> None:
             card_axis = axis.inset_axes([left + index * (width + gap),
                                         top - row_height + 0.07 / total,
                                         width, (height - 0.45) / total])
-            _style_table(card_axis, title, ("Field", "Saved value"), fields, font_size=7.5)
+            _style_table(card_axis, title, ("Field", "Saved value"), fields,
+                         font_size=7.5, section="additional")
             card_axis.title.set_fontsize(9)
             table = next(iter(card_axis.tables))
             # Allocate space by wrapped line count instead of clipping text.
@@ -329,9 +341,12 @@ def _style_table(
     *,
     font_size: float = 7.5,
     empty_message: str = "None defined",
+    section: str = "additional",
 ) -> None:
+    header_color, row_color = SECTION_COLORS[section]
     axis.axis("off")
-    axis.set_title(title, loc="left", fontsize=11, fontweight="bold", pad=7)
+    axis.set_title(title, loc="left", fontsize=11, fontweight="bold", pad=7,
+                   color=header_color)
     if not rows:
         axis.text(0, 0.75, empty_message, fontsize=9, color="#64748b")
         return
@@ -349,11 +364,11 @@ def _style_table(
         cell.set_edgecolor("#cbd5e1")
         cell.set_linewidth(0.6)
         if row == 0:
-            cell.set_facecolor("#1e293b")
+            cell.set_facecolor(header_color)
             cell.get_text().set_color("white")
             cell.get_text().set_fontweight("bold")
         elif row % 2 == 0:
-            cell.set_facecolor("#f1f5f9")
+            cell.set_facecolor(row_color)
 
 
 def _style_transposed_tables(
@@ -366,11 +381,14 @@ def _style_transposed_tables(
     max_columns: int = 3,
     font_size: float = 7.2,
     empty_message: str = "None defined",
+    section: str = "additional",
 ) -> None:
     """Draw each record as its own two-column field/value table."""
 
+    header_color, row_color = SECTION_COLORS[section]
     axis.axis("off")
-    axis.set_title(title, loc="left", fontsize=11, fontweight="bold", pad=7)
+    axis.set_title(title, loc="left", fontsize=11, fontweight="bold", pad=7,
+                   color=header_color)
     if not rows:
         axis.text(0, 0.75, empty_message, fontsize=9, color="#64748b")
         return
@@ -409,11 +427,11 @@ def _style_transposed_tables(
             cell.set_edgecolor("#cbd5e1")
             cell.set_linewidth(0.6)
             if table_row == 0:
-                cell.set_facecolor("#1e293b")
+                cell.set_facecolor(header_color)
                 cell.get_text().set_color("white")
                 cell.get_text().set_fontweight("bold")
             elif table_row % 2 == 0:
-                cell.set_facecolor("#f1f5f9")
+                cell.set_facecolor(row_color)
             if table_column == 0 and table_row > 0:
                 cell.get_text().set_fontweight("bold")
 
@@ -806,6 +824,7 @@ def render_summary(
          "OD\nin", "ID\nin", "Shape or aft detail", "Nose tip radius\nin"),
         part_rows,
         title_columns=2,
+        section="components",
     )
     _style_transposed_tables(
         fins_axis,
@@ -815,6 +834,7 @@ def render_summary(
          "Root LE from nose\nin", "Airfoil", "LE radius\nin"),
         fin_rows,
         title_columns=2,
+        section="fins",
         font_size=7.0,
     )
     _style_transposed_tables(
@@ -825,6 +845,7 @@ def render_summary(
          "Nozzle diameter\nin"),
         simulation_rows,
         title_columns=2,
+        section="motors",
         font_size=7.0,
     )
     _style_transposed_tables(
@@ -835,16 +856,19 @@ def render_summary(
          "Optimum weight", "Optimum max altitude"),
         saved_result_rows,
         title_columns=1,
+        section="results",
         font_size=7.4,
         empty_message="No nonzero saved simulation results in this CDX1 file",
     )
-    _style_table(launch_axis, "Launch site", ("Field", "Value"), launch_rows, font_size=8.0)
+    _style_table(launch_axis, "Launch site", ("Field", "Value"), launch_rows,
+                 font_size=8.0, section="launch")
     _style_transposed_tables(
         recovery_axis,
         "Recovery events",
         ("Event", "Enabled", "Device", "Trigger", "Altitude", "Size\nin", "Cd"),
         recovery_rows,
         title_columns=1,
+        section="recovery",
         max_columns=2,
         font_size=7.3,
     )
