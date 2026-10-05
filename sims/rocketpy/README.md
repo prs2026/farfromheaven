@@ -40,6 +40,7 @@ flowchart LR
 | File | Purpose | Primary inputs | Primary outputs |
 | --- | --- | --- | --- |
 | [`cdx1tojson.py`](cdx1tojson.py) | Convert RASAero data into the project rocket schema | `.CDX1`, aerodynamic CSV, RASP `.eng` | Version 1 or version 2 rocket JSON |
+| [`cdx1_summary_png.py`](../Flight%20Sims/cdx1_summary_png.py) | Render a dimension, mass and saved-results reference sheet | One or more `.CDX1` files | A labeled PNG beside each input |
 | [`interpreter.py`](interpreter.py) | Construct RocketPy rocket and motor objects | Rocket JSON and referenced assets | `Rocket` and readiness diagnostics |
 | [`openmeteo_environment.py`](openmeteo_environment.py) | Build one atmosphere from Open-Meteo | Location, local date/time and model settings | RocketPy `Environment` and profile arrays |
 | [`openmeteo_wind_cache.py`](openmeteo_wind_cache.py) | Download a reusable weather ensemble | Monte Carlo configuration JSON | Wind-cache JSON and partial checkpoint |
@@ -96,6 +97,28 @@ python .\cdx1tojson.py design.CDX1 rocket.json `
 
 `--booster-thrust` powers the attached full stack. It is not attached to the
 standalone booster object.
+
+## cdx1_summary_png.py and cdx1_summary_png.bat
+
+### Purpose
+
+Creates a single PNG reference sheet directly from a RASAero file. The sheet
+contains a labeled side profile, component dimensions, fin geometry, launch
+masses, centers of gravity, motor names, launch-site settings, recovery events,
+and any nonzero simulation results saved in the CDX1 file. Dimensions are shown
+in inches, masses in pounds, and other values in RASAero's native imperial units.
+
+For Windows Explorer use, drag one or more `.CDX1` files onto
+[`cdx1_summary_png.bat`](../Flight%20Sims/cdx1_summary_png.bat). Each output is written beside its source as
+`<design name>_summary_YYYYMMDD_HHMMSS.png` and opened automatically. The launcher prefers the
+workspace virtual environment and falls back to the installed Python launcher.
+
+The Python script can also be called directly:
+
+```powershell
+python ".\Flight Sims\cdx1_summary_png.py" design.CDX1
+python ".\Flight Sims\cdx1_summary_png.py" design.CDX1 --output dimensions.png --dpi 220
+```
 
 ## interpreter.py
 
