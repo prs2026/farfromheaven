@@ -45,11 +45,63 @@ flowchart LR
 | [`openmeteo_environment.py`](openmeteo_environment.py) | Build one atmosphere from Open-Meteo | Location, local date/time and model settings | RocketPy `Environment` and profile arrays |
 | [`openmeteo_wind_cache.py`](openmeteo_wind_cache.py) | Download a reusable weather ensemble | Monte Carlo configuration JSON | Wind-cache JSON and partial checkpoint |
 | [`simrunner.py`](simrunner.py) | Run single-stage and staged flights | Rocket object(s), Environment and launch settings | `Flight`, solution list or `FullStackSimulationResult` |
+| [`preliminary_vibration.py`](preliminary_vibration.py) | Screen aerodynamic pressure and motor vibration by flight regime | Trajectory CSV; optional motor PSD and structural transfer CSVs | Regime PSD CSVs and PNGs, summary report; see [usage guide](preliminary_vibration_README.md) |
 | [`montecarlorunner.py`](montecarlorunner.py) | Sample parameters and run simulations in parallel | Monte Carlo config, rocket JSON and weather | Numbered streamed pickle |
 | [`conglomerate_monte_carlo.py`](conglomerate_monte_carlo.py) | Combine Monte Carlo outputs | Pickle files, directories or globs | Combined streamed pickle |
 | [`singlesim.ipynb`](singlesim.ipynb) | Inspect rockets and run individual flights | Rocket JSON and weather settings | Interactive diagnostics and plots |
 | [`montecarloviewer.ipynb`](montecarloviewer.ipynb) | Analyze Monte Carlo results | Runner or combined pickle | Statistics, plots, PDF, PNG, CSV and KML |
 | [`openmeteo_wind_cache_viewer.ipynb`](openmeteo_wind_cache_viewer.ipynb) | Inspect the cached weather ensemble | Monte Carlo config and wind cache | Profile and distribution plots |
+| [`blue_raven_to_trajectory.py`](../Vibes/blue_raven_to_trajectory.py) | Plot Blue Raven HR acceleration/gyro and export a flight trajectory | Matching Blue Raven HR and LR CSV exports | Sensor PNG, trajectory CSV, quality notes JSON |
+
+## Standard flight trajectory CSV
+
+The trajectory exchange format has **exactly these columns, in this order**:
+
+```text
+time,x,y,z,vx,vy,vz,e0,e1,e2,e3
+```
+
+Each row is one time sample. `time` is seconds since liftoff; `x`, `y`, `z` are
+meters; `vx`, `vy`, `vz` are meters per second; and `e0`, `e1`, `e2`, `e3` are a
+unit quaternion in **scalar-first** order (w, x, y, z). `z` is positive upward.
+The trajectory producer must also state the horizontal axes, position origin,
+and quaternion/body reference frame. The column names and units alone do not
+make two tracks share the same coordinate frame.
+
+For Blue Raven exports, use:
+
+```powershell
+python .\Vibes\blue_raven_to_trajectory.py `
+  '.\Vibes\.BOOSKA_RAVEN HR_09-26-2026_14_43_26.csv' `
+  '.\Vibes\.BOOSKA_RAVEN LR_09-26-2026_14_43_26.csv' `
+  --output-dir '.\Vibes\blue_raven_output'
+```
+
+The script writes `flight_trajectory.csv`, `acceleration_gyro.png`, and
+`flight_trajectory_notes.json`. The trajectory starts at liftoff by default;
+`--start-time` and `--end-time` can select another interval. The PNG plots all
+three raw sensor-axis acceleration channels in g and gyro channels in deg/s.
+
+For this converter, `x` is Blue Raven inertial downrange, `y` is inertial
+crossrange, and `z` is inertial altitude above the launch point. The matching
+velocity channels use those axes. The LR source reports these fields in feet
+and feet/s, so the converter changes them to SI. Horizontal position values
+that roll over at the signed 16-bit boundary are unwrapped. The HR quaternion
+is interpolated to the LR timestamps and reordered from Blue Raven's
+vector-first `(Quat_1, Quat_2, Quat_3, Quat_4)` to the CSV's scalar-first
+`(e0, e1, e2, e3)`. It is **not** transformed from the Blue Raven sensor frame
+into RocketPy's body or east/north/up frame. Without a known launch azimuth,
+sensor mounting orientation, and reference-frame calibration, do not interpret
+this CSV as a geographic track or feed the attitude directly into a RocketPy
+flight state.
+
+The position and velocity fields are the altimeter's inertial estimates, not
+GPS measurements. Blue Raven's [user manual](https://www.featherweightaltimeters.com/uploads/1/0/9/5/109510427/blue_raven_users_manual_june_22.pdf)
+warns that gyro saturation can cause large inertial-navigation errors.
+`flight_trajectory_notes.json` records the first near-limit gyro time and any
+horizontal position rollovers detected. Unwrapping a numeric rollover does
+not remove physical drift; compare the result with barometric altitude or GPS
+before using it for analysis.
 
 ## cdx1tojson.py
 

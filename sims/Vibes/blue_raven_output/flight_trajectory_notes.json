@@ -1,0 +1,22 @@
+{
+  "high_rate_source": "C:\\Users\\Ejfso\\Documents\\GitHub\\projectblaze\\sims\\Vibes\\.BOOSKA_RAVEN HR_09-26-2026_14_43_26.csv",
+  "low_rate_source": "C:\\Users\\Ejfso\\Documents\\GitHub\\projectblaze\\sims\\Vibes\\.BOOSKA_RAVEN LR_09-26-2026_14_43_26.csv",
+  "output_rows": 14326,
+  "coordinate_frame": "Blue Raven launch-relative downrange/crossrange/up, not geographic east/north",
+  "position_units": "meters, relative to launch point",
+  "velocity_units": "meters/second",
+  "attitude": "Blue Raven sensor-frame quaternion, reordered vector-first to scalar-first; not transformed into RocketPy body/ENU frame",
+  "quality": {
+    "horizontal_position_wraps_unwrapped": {
+      "downrange": 3,
+      "crossrange": 17
+    },
+    "first_near_gyro_limit_time_s": 1.772,
+    "gyro_limit_threshold_deg_per_s": 1990.0,
+    "warnings": [
+      "Blue Raven inertial navigation is not an independent position measurement; gyro saturation, deployment shocks and integration drift can make later positions, velocities and attitude unreliable. Review against barometric or GPS data.",
+      "Gyro readings approach the +/-2000 deg/s sensor range; attitude and inertial navigation after the first such reading may be unreliable.",
+      "Horizontal position integer rollovers were unwrapped, but this does not correct inertial-navigation drift."
+    ]
+  }
+}
