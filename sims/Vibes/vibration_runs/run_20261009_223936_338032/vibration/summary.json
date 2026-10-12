@@ -1,0 +1,100 @@
+{
+  "classification": "PRELIMINARY SCREENING ESTIMATES; NOT VALIDATED FLIGHT DATA",
+  "inputs": {
+    "trajectory": "C:\\Users\\Ejfso\\Documents\\GitHub\\projectblaze\\sims\\Vibes\\vibration_runs\\run_20261009_223936_338032\\vibration_input.csv",
+    "trajectory_provenance": "measured",
+    "motor_psd": null,
+    "motor_psd_provenance": null,
+    "transfer_function": null,
+    "transfer_provenance": null,
+    "motor_tones": null,
+    "vehicle_length_m": 1.5,
+    "station_from_nose_m": 0.1,
+    "motor_mass_kg": 2.0,
+    "avionics_mass_kg": 0.1,
+    "structural_damping_ratio": 0.99,
+    "dynamic_viscosity_pa_s_assumed": 1.8e-05,
+    "cq": 0.02,
+    "frequency_band_hz": [
+      20.0,
+      2000.0
+    ],
+    "window_s": 1.0,
+    "mach_target": 6.5,
+    "mach_tolerance": 0.2
+  },
+  "maximum_mach": 4.86804589,
+  "maximum_dynamic_pressure_pa": 1259106.3942303248,
+  "event_times_s": {
+    "ignition_s": null,
+    "cutoff_s": null,
+    "max_q_s": 1.3
+  },
+  "warnings": [
+    "PRELIMINARY SCREENING ESTIMATES ONLY; not validated flight data or qualification levels.",
+    "No pressure-to-acceleration transfer function: aerodynamic acceleration PSD and powered/coast total PSD with nonzero aerodynamic excitation are unavailable. A structural model or measurement is required.",
+    "Avionics mass and structural damping are recorded only; their effects must be embodied in the supplied transfer function. No structural modes are invented.",
+    "The pressure spectrum uses an assumed normalized Lorentzian attached-flow shape; it is not a measured or digitized NASA spectrum and excludes local shock/buffet effects.",
+    "The flat-plate boundary-layer equations are low-fidelity at high Mach, near separation, shocks, fins, or protuberances; Mach 6.5 predictions require local validation.",
+    "One-second trajectory windows are model averages, not PSD estimates from measured acceleration time histories. Separate regime envelopes do not represent statistical flight-to-flight variation.",
+    "The ignition/rail-release regime is approximated as the first configured interval after positive thrust; actual rail-release time is not available in the trajectory CSV.",
+    "No trajectory samples fell within Mach 6.5 \u00b1 0.2.",
+    "Motor cutoff could not be located because the trajectory has no off-thrust samples after powered flight."
+  ],
+  "regimes": {
+    "ignition_rail_release": {
+      "duration_s": 0.0,
+      "one_second_windows": 0,
+      "motor_rms_g": null,
+      "aerodynamic_rms_g": null,
+      "combined_rms_g": null,
+      "complete_acceleration_psd": false
+    },
+    "powered_ascent": {
+      "duration_s": 0.0,
+      "one_second_windows": 0,
+      "motor_rms_g": null,
+      "aerodynamic_rms_g": null,
+      "combined_rms_g": null,
+      "complete_acceleration_psd": false
+    },
+    "maximum_dynamic_pressure": {
+      "duration_s": 0.8999999999999999,
+      "one_second_windows": 1,
+      "motor_rms_g": 0.0,
+      "aerodynamic_rms_g": null,
+      "combined_rms_g": null,
+      "complete_acceleration_psd": false
+    },
+    "mach_6_5_segment": {
+      "duration_s": 0.0,
+      "one_second_windows": 0,
+      "motor_rms_g": null,
+      "aerodynamic_rms_g": null,
+      "combined_rms_g": null,
+      "complete_acceleration_psd": false
+    },
+    "motor_cutoff": {
+      "duration_s": 0.0,
+      "one_second_windows": 0,
+      "motor_rms_g": null,
+      "aerodynamic_rms_g": null,
+      "combined_rms_g": null,
+      "complete_acceleration_psd": false
+    },
+    "coast": {
+      "duration_s": 0.0,
+      "one_second_windows": 0,
+      "motor_rms_g": null,
+      "aerodynamic_rms_g": null,
+      "combined_rms_g": null,
+      "complete_acceleration_psd": false
+    }
+  },
+  "references": {
+    "MIL-STD-810H Method 514.8 Annex D Category 19": "https://milstd.net/pdf/download/MILSTD_810H.pdf",
+    "NASA-HDBK-7005, Dynamic Environmental Criteria": "https://www.vibrationdata.com/tutorials2/NASA7005.pdf",
+    "MSFC-STD-3676B, Section 5.2": "https://standards.nasa.gov/sites/default/files/standards/MSFC/B/0/msfc-std-3676b.pdf",
+    "NASA TN D-1836": "https://ntrs.nasa.gov/citations/19630012009"
+  }
+}

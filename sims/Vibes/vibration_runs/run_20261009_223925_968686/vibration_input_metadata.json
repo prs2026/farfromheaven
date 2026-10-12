@@ -1,0 +1,16 @@
+{
+  "flight_source": "C:\\Users\\Ejfso\\Documents\\GitHub\\projectblaze\\sims\\Vibes\\vibration_runs\\run_20261009_223925_968686\\blue_raven\\flight_trajectory.csv",
+  "weather_source": "C:\\Users\\Ejfso\\Documents\\GitHub\\projectblaze\\sims\\Vibes\\vibration_runs\\run_20261009_223925_968686\\weather_profile.csv",
+  "motor_curve_source": null,
+  "ignition_time_s": null,
+  "exhaust_velocity_mps": null,
+  "launch_elevation_m_asl": 1190.0,
+  "speed_basis": "Ground-relative inertial speed; wind NOT subtracted",
+  "limitations": [
+    "This is a preliminary screening input, not a validated flight environment.",
+    "Blue Raven inertial velocities may be wrong after gyro saturation or deployment.",
+    "Atmosphere is a single modeled hourly profile held fixed over the flight.",
+    "Motor thrust is zero when no measured/specified motor curve was supplied.",
+    "Mach and dynamic pressure use ground speed because Blue Raven horizontal axes are not georeferenced."
+  ]
+}
