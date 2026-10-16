@@ -13,3 +13,7 @@ tools/cdx1_summary/*.spec
 # Sim output folders (*_out): ignored entirely; the sim writes a single
 # <config>_latest.pdf next to the folder, and that file is what gets committed
 *_out/
+sims/rocketpy/monte_carlo_viewer_outputs/AMA CONFIG 14_2026-08-29_221906/AMA CONFIG 14.kml
+sims/rocketpy/monte_carlo_viewer_outputs/AMA CONFIG 14_2026-09-14_013702/AMA CONFIG 14.kml
+sims/rocketpy/monte_carlo_viewer_outputs/AMA CONFIG 14_2026-09-14_013702/AMA CONFIG 14.pdf
+sims/rocketpy/monte_carlo_viewer_outputs/AMA CONFIG 14_2026-09-14_013702/AMA CONFIG 14.png
