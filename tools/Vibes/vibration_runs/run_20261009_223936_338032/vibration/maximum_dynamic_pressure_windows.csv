@@ -1,0 +1,2 @@
+estimate_classification,window_start_s,window_end_s,window_duration_s,maximum_q_pa,maximum_mach,motor_rms_g,aerodynamic_rms_g,combined_rms_g
+PRELIMINARY SCREENING ESTIMATE; NOT VALIDATED FLIGHT DATA,0.8,1.7,0.8999999999999999,1259106.3942303248,4.86804589,0.0,,

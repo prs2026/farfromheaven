@@ -2,7 +2,7 @@
 
 Example:
   python Vibes/openmeteo_profile.py --latitude 40.88 --longitude -119.08 \
-      --local-time 2026-09-26T14:00 --timezone America/Los_Angeles \
+      --local-time 2026-09-26T14:43 --timezone America/Los_Angeles \
       --mode historical --output Vibes/weather_profile.csv
 """
 
@@ -13,7 +13,7 @@ import json
 import math
 import sys
 import time
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 from pathlib import Path
 from urllib.error import HTTPError, URLError
@@ -23,6 +23,10 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import numpy as np
 import pandas as pd
+import matplotlib
+
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
 
 
 FORECAST_URL = "https://api.open-meteo.com/v1/forecast"
@@ -45,15 +49,22 @@ def _request_hour(local_time: str, timezone_name: str, mode: str) -> tuple[datet
         raise ValueError(f"Invalid local time or IANA timezone: {exc}") from exc
     if naive.tzinfo is not None:
         raise ValueError("Give a local time without UTC offset; use --timezone separately")
-    if naive.minute or naive.second or naive.microsecond:
-        raise ValueError("Open-Meteo profiles are hourly; local time must be on an exact hour")
-    requested = naive.replace(tzinfo=zone)
+    requested_local = naive.replace(tzinfo=zone)
+    # Reject nonexistent spring-forward clock times, rather than silently
+    # interpreting them with the wrong UTC offset.
+    if requested_local.astimezone(timezone.utc).astimezone(zone).replace(tzinfo=None) != naive:
+        raise ValueError("local time does not exist in the selected timezone (DST transition)")
+    # Open-Meteo supplies hourly profiles. Round in UTC so a DST transition
+    # cannot create an invalid local hour; record the chosen hour in metadata.
+    rounded_utc = (requested_local.astimezone(timezone.utc) + timedelta(minutes=30)).replace(
+        minute=0, second=0, microsecond=0)
+    requested = rounded_utc.astimezone(zone)
     if mode == "auto":
         mode = "historical" if requested < datetime.now(zone) else "forecast"
     return requested, mode
 
 
-def _retry_after_seconds(value: str | None, attempt: int) -> float:
+def _retry_after_seconds(value: str | None, attempt: int, status_code: int) -> float:
     if value:
         try:
             return min(max(float(value), 0.0), 90.0)
@@ -63,7 +74,8 @@ def _retry_after_seconds(value: str | None, attempt: int) -> float:
                                 datetime.now(parsedate_to_datetime(value).tzinfo)).total_seconds(), 0.0), 90.0)
             except (TypeError, ValueError):
                 pass
-    return min(5.0 * 2**attempt, 60.0)
+    # A 429 with no Retry-After normally reflects a rolling minute quota.
+    return 65.0 if status_code == 429 else min(5.0 * 2**attempt, 60.0)
 
 
 def _get_json(url: str, retries: int = 2, timeout_s: float = 30.0) -> dict:
@@ -74,7 +86,7 @@ def _get_json(url: str, retries: int = 2, timeout_s: float = 30.0) -> dict:
         except HTTPError as exc:
             body = exc.read().decode("utf-8", errors="replace")
             if exc.code in (429, 500, 502, 503, 504) and attempt < retries:
-                time.sleep(_retry_after_seconds(exc.headers.get("Retry-After"), attempt))
+                time.sleep(_retry_after_seconds(exc.headers.get("Retry-After"), attempt, exc.code))
                 continue
             raise RuntimeError(f"Open-Meteo HTTP {exc.code}: {body}") from exc
         except URLError as exc:
@@ -187,6 +199,7 @@ def fetch_profile(latitude: float, longitude: float, local_time: str,
         "mode": chosen_mode,
         "request_url": url,
         "local_time": requested.isoformat(),
+        "input_local_time": local_time,
         "latitude": latitude, "longitude": longitude,
         "surface_elevation_m_asl": float(payload["elevation"]),
         "model_top_m_asl": float(profile["altitude_m_asl"].iloc[-1]),
@@ -212,11 +225,38 @@ def save_profile(profile: pd.DataFrame, metadata: dict, output: Path,
     return output, notes
 
 
+def plot_profile(profile: pd.DataFrame, output: Path, overwrite: bool = False) -> Path:
+    """Save an overview PNG of the vertical atmospheric profile."""
+    if output.exists() and not overwrite:
+        raise ValueError(f"Output already exists: {output}; pass --overwrite to replace it")
+    altitude_km_agl = (profile["altitude_m_asl"] - profile["altitude_m_asl"].iloc[0]) / 1000
+    fig, axes = plt.subplots(1, 4, figsize=(14, 6), sharey=True, constrained_layout=True)
+    axes[0].plot(profile["temperature_k"] - 273.15, altitude_km_agl)
+    axes[0].set_xlabel("Temperature (°C)")
+    axes[1].plot(profile["pressure_pa"] / 1000, altitude_km_agl)
+    axes[1].set_xlabel("Pressure (kPa)")
+    axes[2].plot(profile["air_density_kgm3"], altitude_km_agl)
+    axes[2].set_xlabel("Density (kg/m³)")
+    axes[3].plot(profile["wind_u_mps"], altitude_km_agl, label="East")
+    axes[3].plot(profile["wind_v_mps"], altitude_km_agl, label="North")
+    axes[3].set_xlabel("Wind component (m/s)")
+    axes[3].legend()
+    axes[0].set_ylabel("Altitude above site (km)")
+    for axis in axes:
+        axis.grid(alpha=0.3)
+    fig.suptitle("Open-Meteo modeled atmosphere — one selected hour")
+    output.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(output, dpi=150)
+    plt.close(fig)
+    return output
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--latitude", type=float, required=True)
     parser.add_argument("--longitude", type=float, required=True)
-    parser.add_argument("--local-time", required=True, help="YYYY-MM-DDTHH:00 in the chosen timezone")
+    parser.add_argument("--local-time", required=True,
+                        help="YYYY-MM-DDTHH:MM in the chosen timezone; nearest hour is used")
     parser.add_argument("--timezone", default="UTC", help="IANA timezone, e.g. America/Los_Angeles")
     parser.add_argument("--mode", choices=("auto", "forecast", "historical"), default="auto")
     parser.add_argument("--elevation-m", type=float, help="Optional site elevation override in meters ASL")
@@ -227,11 +267,16 @@ def main(argv: list[str] | None = None) -> int:
         profile, metadata = fetch_profile(args.latitude, args.longitude,
                                           args.local_time, args.timezone,
                                           args.mode, args.elevation_m)
+        plot_path = args.output.resolve().with_suffix(".png")
+        if plot_path.exists() and not args.overwrite:
+            raise ValueError(f"Output already exists: {plot_path}; pass --overwrite to replace it")
         csv_path, notes_path = save_profile(profile, metadata, args.output, args.overwrite)
+        plot_profile(profile, plot_path, args.overwrite)
     except (OSError, ValueError, RuntimeError) as exc:
         parser.error(str(exc))
     print(f"Profile: {csv_path}")
     print(f"Metadata: {notes_path}")
+    print(f"Plot: {plot_path}")
     return 0
 
 

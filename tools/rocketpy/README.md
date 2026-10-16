@@ -45,7 +45,10 @@ flowchart LR
 | [`openmeteo_environment.py`](openmeteo_environment.py) | Build one atmosphere from Open-Meteo | Location, local date/time and model settings | RocketPy `Environment` and profile arrays |
 | [`openmeteo_wind_cache.py`](openmeteo_wind_cache.py) | Download a reusable weather ensemble | Monte Carlo configuration JSON | Wind-cache JSON and partial checkpoint |
 | [`simrunner.py`](simrunner.py) | Run single-stage and staged flights | Rocket object(s), Environment and launch settings | `Flight`, solution list or `FullStackSimulationResult` |
-| [`preliminary_vibration.py`](preliminary_vibration.py) | Screen aerodynamic pressure and motor vibration by flight regime | Trajectory CSV; optional motor PSD and structural transfer CSVs | Regime PSD CSVs and PNGs, summary report; see [usage guide](preliminary_vibration_README.md) |
+| [`preliminary_vibration.py`](../Vibes/preliminary_vibration.py) | Screen aerodynamic pressure and motor vibration by flight regime | Prepared trajectory CSV; optional motor PSD and structural transfer CSVs | Regime PSD CSVs and PNGs, summary report; see [usage guide](../Vibes/preliminary_vibration_README.md) |
+| [`openmeteo_profile.py`](../Vibes/openmeteo_profile.py) | Fetch one forecast or archived-forecast atmosphere for vibration analysis | Coordinates, local time and timezone | Altitude-profile CSV, PNG and source metadata JSON |
+| [`prepare_vibration_trajectory.py`](../Vibes/prepare_vibration_trajectory.py) | Join a standard trajectory to an atmosphere and optional motor curve | Flight CSV, profile CSV, optional thrust CSV | Vibration-input CSV and assumptions JSON |
+| [`vibration_gui.py`](../Vibes/vibration_gui.py) | Guide users through the Blue Raven, weather and vibration workflow | Files and settings entered in a desktop window | Timestamped result folder with plots, CSVs and report |
 | [`montecarlorunner.py`](montecarlorunner.py) | Sample parameters and run simulations in parallel | Monte Carlo config, rocket JSON and weather | Numbered streamed pickle |
 | [`conglomerate_monte_carlo.py`](conglomerate_monte_carlo.py) | Combine Monte Carlo outputs | Pickle files, directories or globs | Combined streamed pickle |
 | [`singlesim.ipynb`](singlesim.ipynb) | Inspect rockets and run individual flights | Rocket JSON and weather settings | Interactive diagnostics and plots |
