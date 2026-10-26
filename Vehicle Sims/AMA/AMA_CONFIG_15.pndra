@@ -151,8 +151,9 @@ Inertia=30212.90949478386
 MotorOffset=3.5
 
 [MonteCarlo]
-Runs=0
+Runs=128
 Seed=0
+Prediction=75
 AngleStd=0.5
 HeadingStd=180
 CoastStd=0.5
@@ -162,6 +163,6 @@ BoosterMassStd=2
 SustainerMassStd=2
 WindSpeedStd=0
 WindDirectionStd=0
-WindDays=7
+WindDays=1
 MaxDayWind=10
 SkipDays=

@@ -1,7 +1,7 @@
 # PANDORA rocket design file
 [Case]
 Units=IN
-Analyze=SUSTAINER
+Analyze=STACK
 
 [Nose]
 Shape=CONICAL
@@ -12,7 +12,7 @@ FlatTip=false
 
 [Body]
 Diameter=3
-Length=51.25
+Length=51.299999999999997
 BoattailLength=0
 BoattailDiameter=3
 NozzleExitDiameter=2.5
@@ -32,9 +32,9 @@ TEChamfer=0.75
 [FinCan]
 Enabled=true
 Diameter=3.1499999999999999
-Length=8
+Length=9.1600000000000001
 AftOffset=0
-FrontBevel=1.288
+FrontBevel=1.0900000000000001
 
 [Booster]
 Enabled=true
@@ -84,8 +84,8 @@ ClipFinsToShock=false
 TurbulentBoundaryLayer=false
 
 [Motors]
-Sustainer=/home/kginis/Documents/Code/PANDORA/examples/EAYF Sustainer - N3051.eng
-Booster=/home/kginis/Documents/Code/PANDORA/examples/EAYF Booster - M3140.eng
+Sustainer=/home/kginis/Documents/Code/farfromheaven/Vehicle Sims/EYOF/EAYF Sustainer - N3051.eng
+Booster=/home/kginis/Documents/Code/farfromheaven/Vehicle Sims/EYOF/EAYF Booster - M3140.eng
 
 [Site]
 Weather=OPENMETEO
@@ -119,9 +119,9 @@ MainChuteAltitude=2000
 IncludeDescent=false
 
 [DrySustainer]
-Mass=12.800000000000001
-CG=47.5
-Inertia=3198.25
+Mass=13.5
+CG=42
+Inertia=2321
 MotorOffset=2.6000000000000001
 
 [DryStack]
@@ -133,6 +133,7 @@ MotorOffset=3.4399999999999999
 [MonteCarlo]
 Runs=128
 Seed=0
+Prediction=95
 AngleStd=0.5
 HeadingStd=180
 CoastStd=0.5
