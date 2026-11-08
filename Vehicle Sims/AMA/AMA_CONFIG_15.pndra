@@ -28,6 +28,7 @@ Thickness=0.14699999999999999
 Section=CHAMFER
 LEChamfer=1.0189999999999999
 TEChamfer=0.69999999999999996
+Cant=0
 
 [FinCan]
 Enabled=true
@@ -60,6 +61,7 @@ Thickness=0.187
 Section=CHAMFER
 LEChamfer=1
 TEChamfer=0.75
+Cant=0
 
 [BoosterFinCan]
 Enabled=true
@@ -121,12 +123,14 @@ CylinderRadius=17
 
 [Launch]
 RailLength=15
-Angle=90
-Heading=0
-Coast=15
+Angle=89.045000000000002
+Heading=71
+Coast=14.939
 MaxTilt=10
 MinIgnitionAltitude=0
 MaxTime=1000
+MaxAoA=2
+AoAQ=0
 
 [Recovery]
 ApogeeChuteDiameter=8
@@ -142,16 +146,22 @@ IncludeDescent=false
 Mass=10.092000000000001
 CG=41.899999999999999
 Inertia=4500
+RollInertia=32.021000000000001
+CgOffset=0.059999999999999998
+AxisTilt=0.014999999999999999
 MotorOffset=2.6000000000000001
 
 [DryStack]
 Mass=34.387
 CG=85
 Inertia=30212.90949478386
+RollInertia=194.19200000000001
+CgOffset=0.14999999999999999
+AxisTilt=0
 MotorOffset=3.5
 
 [MonteCarlo]
-Runs=128
+Runs=0
 Seed=0
 Prediction=75
 AngleStd=0.5
@@ -161,8 +171,17 @@ BoosterImpulseStd=2
 SustainerImpulseStd=2
 BoosterMassStd=2
 SustainerMassStd=2
+CantStd=0.050000000000000003
+SustainerFinAlignStd=0.050000000000000003
+BoosterFinAlignStd=0.050000000000000003
+SustainerThrustOffsetStd=0.050000000000000003
+BoosterThrustOffsetStd=0.10000000000000001
+SustainerCgOffsetStd=0.0050000000000000001
+BoosterCgOffsetStd=0.01
+SustainerTiltStd=0
+BoosterTiltStd=0
 WindSpeedStd=0
 WindDirectionStd=0
-WindDays=1
+WindDays=5
 MaxDayWind=10
 SkipDays=

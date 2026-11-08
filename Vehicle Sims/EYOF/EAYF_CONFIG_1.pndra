@@ -11,10 +11,10 @@ TipRadius=0.099999999999998743
 FlatTip=false
 
 [Body]
-Diameter=3
+Diameter=2.9999999999999996
 Length=51.299999999999997
 BoattailLength=0
-BoattailDiameter=3
+BoattailDiameter=2.9999999999999996
 NozzleExitDiameter=2.5
 
 [Fins]
@@ -26,8 +26,9 @@ Sweep=5
 AftOffset=0
 Thickness=0.157
 Section=CHAMFER
-LEChamfer=0.75
-TEChamfer=0.75
+LEChamfer=0.74999999999999989
+TEChamfer=0.74999999999999989
+Cant=0
 
 [FinCan]
 Enabled=true
@@ -38,7 +39,7 @@ FrontBevel=1.0900000000000001
 
 [Booster]
 Enabled=true
-Diameter=3
+Diameter=2.9999999999999996
 Length=40
 Insertion=0
 TransitionLength=1
@@ -59,7 +60,8 @@ AftOffset=0
 Thickness=0.11799999999999999
 Section=CHAMFER
 LEChamfer=1
-TEChamfer=0.75
+TEChamfer=0.74999999999999989
+Cant=0
 
 [BoosterFinCan]
 Enabled=true
@@ -73,15 +75,15 @@ Type=FAIRING
 Stage=SUSTAINER
 X=17
 Count=2
-Length=0.75
+Length=0.74999999999999989
 Width=0.40000000000000002
 Height=0.40000000000000002
 Standoff=0
 
 [Flight]
-Altitude=4000
-ClipFinsToShock=false
+Altitude=3999.9999999999991
 TurbulentBoundaryLayer=false
+Roughness=0.00098425196850393699
 
 [Motors]
 Sustainer=/home/kginis/Documents/Code/farfromheaven/Vehicle Sims/EYOF/EAYF Sustainer - N3051.eng
@@ -89,18 +91,17 @@ Booster=/home/kginis/Documents/Code/farfromheaven/Vehicle Sims/EYOF/EAYF Booster
 
 [Site]
 Weather=OPENMETEO
-Latitude=35.204990000000002
-Longitude=-117.4832
-Elevation=2000
+Latitude=35.347119999999997
+Longitude=-117.80824
+Elevation=1999.9999999999995
 Date=2026-09-16
-Time=06:00
-Timezone=America/Los_Angeles
+Time=17:00
 WindSpeed=0
 WindDirection=0
 CylinderRadius=7
 
 [Launch]
-RailLength=15
+RailLength=14.999999999999998
 Angle=90
 Heading=0
 Coast=10
@@ -113,7 +114,7 @@ ApogeeChuteDiameter=8
 ApogeeChuteCd=0.80000000000000004
 MainChuteDiameter=28
 MainChuteCd=1.8
-MainChuteAltitude=2000
+MainChuteAltitude=1999.9999999999995
 
 [Thermal]
 IncludeDescent=false
@@ -121,19 +122,27 @@ IncludeDescent=false
 [DrySustainer]
 Mass=13.5
 CG=42
-Inertia=2321
+Inertia=4985.1719999999996
+RollInertia=37.744
+CgOffset=0.0080000000000000002
+ProductFin1=0.60099999999999998
+Product90=0.94358799999999998
 MotorOffset=2.6000000000000001
 
 [DryStack]
 Mass=21.620000000000001
 CG=67
-Inertia=10692.5
+Inertia=19078
+RollInertia=63.649999999999999
+CgOffset=0.014800000000000001
+ProductFin1=1.105
+Product90=21.917000000000002
 MotorOffset=3.4399999999999999
 
 [MonteCarlo]
-Runs=128
-Seed=0
-Prediction=95
+Runs=512
+FailWhen=lock-in = true; resonance = true; lockout = true
+ToleranceSweep=false
 AngleStd=0.5
 HeadingStd=180
 CoastStd=0.5
@@ -141,8 +150,15 @@ BoosterImpulseStd=2
 SustainerImpulseStd=2
 BoosterMassStd=2
 SustainerMassStd=2
+CantStd=0.20000000000000001
+SustainerFinAlignStd=0.10000000000000001
+BoosterFinAlignStd=0.10000000000000001
+SustainerThrustOffsetStd=0.10000000000000001
+BoosterThrustOffsetStd=0.20000000000000001
+SustainerCgOffsetStd=0.01
+BoosterCgOffsetStd=0.02
+SustainerProductStd=0.050000000000000003
+BoosterProductStd=0.050000000000000003
 WindSpeedStd=0
 WindDirectionStd=0
 WindDays=7
-MaxDayWind=10
-SkipDays=
