@@ -102,8 +102,8 @@ Standoff=0
 
 [Flight]
 Altitude=4000
-ClipFinsToShock=false
 TurbulentBoundaryLayer=true
+Roughness=0
 
 [Motors]
 Sustainer=N3364.eng
@@ -115,8 +115,7 @@ Latitude=40.870683
 Longitude=-119.10695
 Elevation=3701
 Date=2026-09-16
-Time=06:00
-Timezone=America/Los_Angeles
+Time=13:00
 WindSpeed=0
 WindDirection=0
 CylinderRadius=17
@@ -129,8 +128,6 @@ Coast=14.939
 MaxTilt=10
 MinIgnitionAltitude=0
 MaxTime=1000
-MaxAoA=2
-AoAQ=0
 
 [Recovery]
 ApogeeChuteDiameter=8
@@ -148,7 +145,8 @@ CG=41.899999999999999
 Inertia=4500
 RollInertia=32.021000000000001
 CgOffset=0.059999999999999998
-AxisTilt=0.014999999999999999
+ProductFin1=1.1697141668994557
+Product90=0
 MotorOffset=2.6000000000000001
 
 [DryStack]
@@ -157,13 +155,14 @@ CG=85
 Inertia=30212.90949478386
 RollInertia=194.19200000000001
 CgOffset=0.14999999999999999
-AxisTilt=0
+ProductFin1=0
+Product90=0
 MotorOffset=3.5
 
 [MonteCarlo]
-Runs=0
-Seed=0
-Prediction=75
+Runs=1024
+FailWhen=lock-in = true; resonance = true; lockout = true; Max angle of attack > 2
+ToleranceSweep=false
 AngleStd=0.5
 HeadingStd=180
 CoastStd=0.5
@@ -178,10 +177,8 @@ SustainerThrustOffsetStd=0.050000000000000003
 BoosterThrustOffsetStd=0.10000000000000001
 SustainerCgOffsetStd=0.0050000000000000001
 BoosterCgOffsetStd=0.01
-SustainerTiltStd=0
-BoosterTiltStd=0
+SustainerProductStd=0
+BoosterProductStd=0
 WindSpeedStd=0
 WindDirectionStd=0
 WindDays=5
-MaxDayWind=10
-SkipDays=
