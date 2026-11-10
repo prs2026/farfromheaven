@@ -1,0 +1,61 @@
+PANDORA - EAYF_CONFIG_1
+Nose radius for heating: 0.1 in
+
+                             nominal
+Rail exit speed               114.08  ft/s
+Rail exit AoA                 2.2067  deg
+Forecast gust                 13.123  ft/s
+Rail exit AoA in gust         6.5623  deg
+Apogee                    1.1778e+05  ft
+Time to apogee                88.739  s
+Max speed                     4354.1  ft/s
+Max acceleration              73.846  g
+Max roll rate                 7.3392  rev/s
+Max angle of attack           1.2518  deg
+Max AoA after burnout        0.39259  deg
+Roll-pitch crossings               0  
+Resonance time                   nan  s
+Resonance altitude               nan  ft
+AoA rise at resonance            nan  deg
+Roll lock-in held                  0  s
+Lock-in starts                   nan  s
+Max Mach                      4.1188  
+Max dynamic pressure           11225  psf
+Peak vibration, thrust        25.234  Grms
+Peak thrust vibration at         6.3  s
+Peak vibration, lateral       25.234  Grms
+Peak lateral vibration at         6.3  s
+Peak heat flux                554.05  BTU/ft²/s
+Heat load                     2971.1  BTU/ft²
+Tilt at ignition              3.9992  deg
+Altitude at ignition           12050  ft
+Flight time                   369.34  s
+Landing east                 -1.6372  mi
+Landing north                -1.3332  mi
+Landing distance              2.1114  mi
+Impact speed                  40.683  ft/s
+Launch mass                   38.822  lb, CG 64.40 in from the nose tip
+Min static margin             3.1301  cal (while loaded)
+Angles of attack are while loaded, launch to apogee: dynamic pressure above 5% of its peak.
+Failure conditions: lock-in = true; resonance = true; lockout = true. The nominal flight passes
+Sustainer ignited: yes
+Launch cylinder, 7 nmi: the nominal flight lands inside
+
+Events
+      2.49 s  Booster burnout, separation
+     12.49 s  Sustainer ignition
+     15.85 s  Sustainer burnout
+     88.74 s  Apogee
+     88.74 s  Apogee chute
+    322.01 s  Main chute
+
+
+Nosecone and fins, each alone in DATCOM (nominal flight, sustainer after separation)
+  Peak nosecone drag 64.12 lbf at 15.27 s, Mach 3.89; CP 9.792 in from the nose tip
+  Peak fin set drag 47.1 lbf (11.77 per fin) at 15.25 s, Mach 3.87; CP 63.36 in from the nose tip
+
+Weather
+  Open-Meteo forecast at 35.3471, -117.8082, 17:00 UTC
+  day                   surface wind         gust at the launch hour
+  2026-09-16      9.2 ft/s from 202 deg   13.1 ft/s from 274 deg at 17:00   nominal flight
+  Each day is a whole forecast wind profile; the gust is the 10 m forecast for the launch hour, used only for the rail exit AoA in gust.
