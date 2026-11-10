@@ -139,6 +139,10 @@ MainChuteAltitude=2000
 [Thermal]
 IncludeDescent=false
 
+[Vibration]
+Spec=NSROC Level 2
+ThrustOscillation=1
+
 [DrySustainer]
 Mass=10.092000000000001
 CG=41.899999999999999
@@ -160,7 +164,7 @@ Product90=0
 MotorOffset=3.5
 
 [MonteCarlo]
-Runs=1024
+Runs=0
 FailWhen=lock-in = true; resonance = true; lockout = true; Max angle of attack > 2
 ToleranceSweep=false
 AngleStd=0.5
@@ -173,11 +177,11 @@ SustainerMassStd=2
 CantStd=0.050000000000000003
 SustainerFinAlignStd=0.050000000000000003
 BoosterFinAlignStd=0.050000000000000003
-SustainerThrustOffsetStd=0.050000000000000003
+SustainerThrustOffsetStd=0.10000000000000001
 BoosterThrustOffsetStd=0.10000000000000001
 SustainerCgOffsetStd=0.0050000000000000001
 BoosterCgOffsetStd=0.01
-SustainerProductStd=0
+SustainerProductStd=0.025000000000000001
 BoosterProductStd=0
 WindSpeedStd=0
 WindDirectionStd=0

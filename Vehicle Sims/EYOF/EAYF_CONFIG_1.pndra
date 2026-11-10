@@ -1,89 +1,89 @@
 # PANDORA rocket design file
 [Case]
-Units=M
+Units=IN
 Analyze=STACK
 
 [Nose]
 Shape=CONICAL
-Length=0.38100000000000001
+Length=15
 PowerExponent=0.5
-TipRadius=0.0025399999999999681
+TipRadius=0.099999999999998743
 FlatTip=false
 
 [Body]
-Diameter=0.07619999999999999
-Length=1.3030199999999998
+Diameter=2.9999999999999996
+Length=51.299999999999997
 BoattailLength=0
-BoattailDiameter=0.07619999999999999
-NozzleExitDiameter=0.063500000000000001
+BoattailDiameter=2.9999999999999996
+NozzleExitDiameter=2.5
 
 [Fins]
 Count=4
-RootChord=0.20319999999999999
-TipChord=0.13969999999999999
-Span=0.091948000000000002
-Sweep=0.127
+RootChord=8
+TipChord=5.5
+Span=3.6200000000000001
+Sweep=5
 AftOffset=0
-Thickness=0.0039877999999999997
+Thickness=0.157
 Section=CHAMFER
-LEChamfer=0.019049999999999997
-TEChamfer=0.019049999999999997
-Cant=0
+LEChamfer=0.74999999999999989
+TEChamfer=0.74999999999999989
+Cant=0.20000000000000001
 
 [FinCan]
 Enabled=true
-Diameter=0.080009999999999998
-Length=0.23266399999999998
+Diameter=3.1499999999999999
+Length=9.1600000000000001
 AftOffset=0
-FrontBevel=0.027686000000000002
+FrontBevel=1.0900000000000001
 
 [Booster]
 Enabled=true
-Diameter=0.07619999999999999
-Length=1.016
+Diameter=2.9999999999999996
+Length=40
 Insertion=0
-TransitionLength=0.025399999999999999
+TransitionLength=1
 NoseCone=false
 NoseShape=OGIVE
-NoseLength=0.20319999999999999
+NoseLength=8
 BoattailLength=0
-BoattailDiameter=0.00025399999999999999
-NozzleExitDiameter=0.069849999999999995
+BoattailDiameter=0.01
+NozzleExitDiameter=2.75
 
 [BoosterFins]
 Count=4
-RootChord=0.20319999999999999
-TipChord=0.1016
-Span=0.1143
-Sweep=0.1016
+RootChord=8
+TipChord=4
+Span=4.5
+Sweep=4
 AftOffset=0
-Thickness=0.0029971999999999998
+Thickness=0.11799999999999999
 Section=CHAMFER
-LEChamfer=0.025399999999999999
-TEChamfer=0.019049999999999997
+LEChamfer=1
+TEChamfer=0.74999999999999989
 Cant=0
 
 [BoosterFinCan]
 Enabled=true
-Diameter=0.078740000000000004
-Length=0.21589999999999998
+Diameter=3.1000000000000001
+Length=8.5
 AftOffset=0
-FrontBevel=0.012699999999999999
+FrontBevel=0.5
 
 [Protuberance1]
 Type=FAIRING
 Stage=SUSTAINER
-X=0.43179999999999996
+X=17
 Count=2
-Length=0.019049999999999997
-Width=0.010160000000000001
-Height=0.010160000000000001
+Length=0.74999999999999989
+Width=0.40000000000000002
+Height=0.40000000000000002
 Standoff=0
 
 [Flight]
-Altitude=1219.1999999999998
+Altitude=3999.9999999999991
 TurbulentBoundaryLayer=false
-Roughness=2.4999999999999998e-05
+Roughness=0.00098425196850393699
 
 [Motors]
 Sustainer=/home/kginis/Documents/Code/farfromheaven/Vehicle Sims/EYOF/EAYF Sustainer - N3051.eng
@@ -93,7 +93,7 @@ Booster=/home/kginis/Documents/Code/farfromheaven/Vehicle Sims/EYOF/EAYF Booster
 Weather=OPENMETEO
 Latitude=35.347119999999997
 Longitude=-117.80824
-Elevation=609.59999999999991
+Elevation=1999.9999999999995
 Date=2026-09-16
 Time=17:00
 WindSpeed=0
@@ -101,7 +101,7 @@ WindDirection=0
 CylinderRadius=7
 
 [Launch]
-RailLength=4.5720000000000001
+RailLength=14.999999999999998
 Angle=90
 Heading=0
 Coast=10
@@ -110,37 +110,41 @@ MinIgnitionAltitude=0
 MaxTime=1000
 
 [Recovery]
-ApogeeChuteDiameter=0.20319999999999999
+ApogeeChuteDiameter=8
 ApogeeChuteCd=0.80000000000000004
-MainChuteDiameter=0.71119999999999994
+MainChuteDiameter=28
 MainChuteCd=1.8
-MainChuteAltitude=609.59999999999991
+MainChuteAltitude=1999.9999999999995
 
 [Thermal]
 IncludeDescent=false
 
+[Vibration]
+Spec=NSROC Level 2
+ThrustOscillation=15
+
 [DrySustainer]
-Mass=6.123496995
-CG=1.0668
-Inertia=1.4588590063649516
-RollInertia=0.011045391079031724
-CgOffset=0.00020320000000000001
-ProductFin1=0.00017587643171094918
-Product90=0.00027613126529995197
-MotorOffset=0.066040000000000001
+Mass=13.5
+CG=42
+Inertia=4985.1719999999996
+RollInertia=37.744
+CgOffset=0.5
+ProductFin1=0.60099999999999998
+Product90=0.94358799999999998
+MotorOffset=2.6000000000000001
 
 [DryStack]
-Mass=9.8066670394000006
-CG=1.7018
-Inertia=5.5829793081222778
-RollInertia=0.018626513940768578
-CgOffset=0.00037592000000000002
-ProductFin1=0.000323366817039266
-Product90=0.0064137832842077764
-MotorOffset=0.087375999999999995
+Mass=21.620000000000001
+CG=67
+Inertia=19078
+RollInertia=63.649999999999991
+CgOffset=0.014800000000000001
+ProductFin1=1.105
+Product90=21.917000000000002
+MotorOffset=3.4399999999999999
 
 [MonteCarlo]
-Runs=512
+Runs=0
 FailWhen=lock-in = true; resonance = true; lockout = true
 ToleranceSweep=false
 AngleStd=0.5
@@ -153,12 +157,12 @@ SustainerMassStd=2
 CantStd=0.20000000000000001
 SustainerFinAlignStd=0.10000000000000001
 BoosterFinAlignStd=0.10000000000000001
-SustainerThrustOffsetStd=0.0025400000000000002
-BoosterThrustOffsetStd=0.0050800000000000003
-SustainerCgOffsetStd=0.00025399999999999999
-BoosterCgOffsetStd=0.00050799999999999999
-SustainerProductStd=1.4631982671460001e-05
-BoosterProductStd=1.4631982671460001e-05
+SustainerThrustOffsetStd=0.10000000000000001
+BoosterThrustOffsetStd=0.20000000000000001
+SustainerCgOffsetStd=0.01
+BoosterCgOffsetStd=0.02
+SustainerProductStd=0.050000000000000003
+BoosterProductStd=0.050000000000000003
 WindSpeedStd=0
 WindDirectionStd=0
 WindDays=7
